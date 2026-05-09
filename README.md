@@ -26,3 +26,17 @@ Open the local URL shown by Vite.
 ```bash
 npm run build
 ```
+
+## Deployment And Access
+
+Public app link:
+
+https://syed-fund-simulator.vercel.app
+
+Approved-user access is managed in Vercel with:
+
+```text
+VITE_APPROVED_EMAILS
+```
+
+See `PROJECT_NOTES.md` for deployment, GitHub, and access-control notes.

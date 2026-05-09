@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
+import { SignIn, SignedIn, SignedOut, UserButton, useUser } from "@clerk/clerk-react";
 import { Activity, AlertTriangle, Banknote, BookOpenCheck, Calculator, ChevronLeft, ChevronRight, Download, FileSpreadsheet, Gauge, GitBranch, Landmark, LineChart as LineIcon, LockKeyhole, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, ShieldAlert, Sigma, SlidersHorizontal, TrendingDown, TrendingUp, Users } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
@@ -136,6 +137,7 @@ function Header() {
         <div className="status-pill good">NAV {fmt(r.netAssets, true)}</div>
         <div className="status-pill">NAV/share {r.navPerShare.toFixed(4)}</div>
         <button className="terminal-button" onClick={reset}><RefreshCw size={15} /> Reset book</button>
+        <UserButton afterSignOutUrl="/" />
       </div>
     </header>
   );
@@ -384,14 +386,83 @@ function ModuleContent() {
   );
 }
 
+function AuthGate({ children }: { children: ReactNode }) {
+  const { user, isLoaded } = useUser();
+  const approvedEmails = (import.meta.env.VITE_APPROVED_EMAILS as string | undefined)
+    ?.split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean) ?? [];
+  const currentEmail = user?.primaryEmailAddress?.emailAddress?.toLowerCase();
+  const isApproved = Boolean(currentEmail && approvedEmails.includes(currentEmail));
+
+  if (!isLoaded) {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card">
+          <div className="brand-mark">SF</div>
+          <h1>Checking Access</h1>
+          <p>Validating approved-user permissions.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!approvedEmails.length) {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card">
+          <div className="brand-mark">SF</div>
+          <h1>Email Approval List Missing</h1>
+          <p>Add <code>VITE_APPROVED_EMAILS</code> in Vercel with comma-separated approved emails.</p>
+          <UserButton afterSignOutUrl="/" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!isApproved) {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card">
+          <div className="brand-mark">SF</div>
+          <h1>Access Pending Approval</h1>
+          <p>{currentEmail ? `${currentEmail} is signed in, but is not approved for this simulator.` : "This account is not approved."}</p>
+          <span className="auth-note">Ask the administrator to add this email to the approved access list.</span>
+          <UserButton afterSignOutUrl="/" />
+        </div>
+      </div>
+    );
+  }
+
+  return children;
+}
+
 export default function App() {
   return (
-    <div className="app-shell">
-      <Sidebar />
-      <div className="main-shell">
-        <Header />
-        <ModuleContent />
-      </div>
-    </div>
+    <>
+      <SignedOut>
+        <div className="auth-shell">
+          <div className="auth-panel">
+            <div className="auth-copy">
+              <div className="brand-mark">SF</div>
+              <h1>SYED FUND SIMULATOR</h1>
+              <p>Approved users only. Sign in with your registered email to access the NAV operations workstation.</p>
+            </div>
+            <SignIn routing="hash" />
+          </div>
+        </div>
+      </SignedOut>
+      <SignedIn>
+        <AuthGate>
+          <div className="app-shell">
+            <Sidebar />
+            <div className="main-shell">
+              <Header />
+              <ModuleContent />
+            </div>
+          </div>
+        </AuthGate>
+      </SignedIn>
+    </>
   );
 }

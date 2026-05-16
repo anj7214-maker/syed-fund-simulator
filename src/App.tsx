@@ -12,6 +12,7 @@ import { CopilotContext, ModuleId, UploadModule } from "./types";
 
 const modules: Array<{ id: ModuleId; label: string; icon: typeof Activity }> = [
   { id: "dashboard", label: "Executive Dashboard", icon: Gauge },
+  { id: "aiCopilot", label: "AI Copilot", icon: Bot },
   { id: "fund", label: "Fund Master Setup", icon: Landmark },
   { id: "holdings", label: "Portfolio Holdings", icon: FileSpreadsheet },
   { id: "trades", label: "Trade Blotter", icon: BookOpenCheck },
@@ -765,6 +766,83 @@ function ExportView() {
   return <section className="panel full"><PanelTitle title="Financial Statements Export" right="Excel, PDF, NAV pack and investor statements" /><div className="scenario-grid big">{["Excel NAV Pack", "PDF NAV Pack", "Investor Statement", "Trial Balance", "P&L", "Balance Sheet"].map((x) => <button className="scenario-button" key={x} onClick={() => download(`${x.replaceAll(" ", "-").toLowerCase()}.csv`, csv)}><Download size={16} />{x}</button>)}</div></section>;
 }
 
+function AICopilotWorkspace() {
+  const r = useRecalc();
+  const store = useFundStore();
+  const { setAiPanelOpen, toggleLearningMode, learningMode, explainContext, setActiveModule } = store;
+  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const latestUpload = store.uploads[0];
+  const largestHolding = [...r.holdings].sort((a, b) => Math.abs(b.baseMarketValue) - Math.abs(a.baseMarketValue))[0];
+  const selectedBreak = openBreaks.sort((a, b) => b.navImpact - a.navImpact)[0];
+  const prompts = [
+    "Why did NAV move today?",
+    "Analyze open breaks",
+    "Explain GL posting impact",
+    "Show biggest exposure",
+    "How do I publish NAV?",
+    "Explain latest upload validation",
+  ];
+  const launchPrompt = (prompt: string) => {
+    explainContext({
+      tab: "aiCopilot",
+      title: prompt,
+      summary: `The Copilot is reading live simulator data: NAV ${fmt(r.netAssets, true)}, ${openBreaks.length} open break(s), latest upload ${latestUpload?.fileName ?? "none"}, and workflow ${store.fundSetup.workflowStatus}.`,
+      accountingImpact: "The assistant can explain how edits and uploads propagate through GL, trial balance, P&L, balance sheet, NAV, fees, and investor allocations.",
+      navImpact: "It uses current recalculation outputs, open breaks, holdings, FX, fees, and workflow status to explain NAV movement.",
+      recommendedAction: "Ask a question in the Copilot panel, or select an operational module from the workflow shortcuts below.",
+      relatedEntries: ["NAV Package", "Break Management", "General Ledger", "Portfolio Holdings", "Upload Validation"],
+    });
+  };
+  return (
+    <section className="panel full ai-workspace">
+      <PanelTitle title="Institutional AI Copilot" right="Conversational NAV operations assistant" />
+      <div className="ai-hero">
+        <div>
+          <div className="ai-badge"><Bot size={16} /> Live dashboard context enabled</div>
+          <h2>Ask questions about NAV, breaks, uploads, GL postings, fees, holdings, FX and workflow approvals.</h2>
+          <p>The Copilot is connected to the simulator state. Open the chat panel, type naturally, and it will answer using the active tab, live NAV, reconciliation breaks, uploads, selected records and audit context.</p>
+        </div>
+        <div className="ai-launch-actions">
+          <button className="terminal-button selected" onClick={() => setAiPanelOpen(true)}><Bot size={16} /> Open AI Chat</button>
+          <button className={`terminal-button ${learningMode ? "selected" : ""}`} onClick={toggleLearningMode}><Brain size={16} /> {learningMode ? "Learning Mode On" : "Enable Learning Mode"}</button>
+        </div>
+      </div>
+      <div className="ai-context-grid">
+        <div className="ai-context-card">
+          <span>Current NAV</span>
+          <b>{fmt(r.netAssets, true)}</b>
+          <small>NAV/share {r.navPerShare.toFixed(4)} with live fee and P&L recalculation.</small>
+        </div>
+        <div className="ai-context-card">
+          <span>Open Breaks</span>
+          <b>{openBreaks.length}</b>
+          <small>{selectedBreak ? `${selectedBreak.id}: ${selectedBreak.breakType}, ${fmt(selectedBreak.navImpact, true)} NAV impact.` : "No material break selected."}</small>
+        </div>
+        <div className="ai-context-card">
+          <span>Largest Exposure</span>
+          <b>{largestHolding?.ticker ?? "N/A"}</b>
+          <small>{largestHolding ? `${fmt(largestHolding.baseMarketValue, true)} base market value, ${largestHolding.exposurePct.toFixed(2)}% exposure.` : "No holdings loaded."}</small>
+        </div>
+        <div className="ai-context-card">
+          <span>Latest Upload</span>
+          <b>{latestUpload?.fileName ?? "None"}</b>
+          <small>{latestUpload ? `${latestUpload.validationStatus}, ${latestUpload.warnings} warning(s), ${latestUpload.rejectedRows} rejected row(s).` : "Upload files in recon, pricing, trades or capital modules."}</small>
+        </div>
+      </div>
+      <div className="ai-prompt-bank">
+        {prompts.map((prompt) => <button key={prompt} onClick={() => launchPrompt(prompt)}>{prompt}</button>)}
+      </div>
+      <div className="ai-shortcuts">
+        <button className="scenario-button" onClick={() => setActiveModule("nav")}>NAV Package</button>
+        <button className="scenario-button" onClick={() => setActiveModule("reconBreaks")}>Breaks Dashboard</button>
+        <button className="scenario-button" onClick={() => setActiveModule("gl")}>General Ledger</button>
+        <button className="scenario-button" onClick={() => setActiveModule("holdings")}>Portfolio Holdings</button>
+        <button className="scenario-button" onClick={() => setActiveModule("workflow")}>Approval Queue</button>
+      </div>
+    </section>
+  );
+}
+
 function ModuleContent() {
   const active = useFundStore((s) => s.activeModule);
   return (
@@ -772,6 +850,7 @@ function ModuleContent() {
       <motion.main key={active} className="content" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.16 }}>
         <DependencyStrip />
         {active === "dashboard" && <Dashboard />}
+        {active === "aiCopilot" && <AICopilotWorkspace />}
         {active === "fund" && <FundMasterSetup />}
         {active === "holdings" && <section className="panel full"><PanelTitle title="Editable Portfolio Holdings" right="Any edit recalculates NAV, P&L, GL and allocations" /><ManualSubmitBar label="Holding amendment workflow" fields="Quantity, Cost Price, Market Price" /><HoldingsGrid /></section>}
         {active === "security" && <><FileUploadPanel module="security" title="Security Reference Upload" /><SecurityMasterView /></>}

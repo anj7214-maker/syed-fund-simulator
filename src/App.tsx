@@ -766,6 +766,58 @@ function ExportView() {
   return <section className="panel full"><PanelTitle title="Financial Statements Export" right="Excel, PDF, NAV pack and investor statements" /><div className="scenario-grid big">{["Excel NAV Pack", "PDF NAV Pack", "Investor Statement", "Trial Balance", "P&L", "Balance Sheet"].map((x) => <button className="scenario-button" key={x} onClick={() => download(`${x.replaceAll(" ", "-").toLowerCase()}.csv`, csv)}><Download size={16} />{x}</button>)}</div></section>;
 }
 
+function CopilotChatSurface({ compact = false }: { compact?: boolean }) {
+  const { copilotContext, activeModule, learningMode } = useFundStore();
+  const store = useFundStore();
+  const r = useRecalc();
+  const [mode, setMode] = useState<"Learning" | "Professional">("Professional");
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { id: "welcome", role: "assistant", text: "I am your institutional operations copilot. Type a question about NAV movement, breaks, uploads, GL postings, fees, holdings, FX, or approval workflow.", timestamp: new Date().toLocaleTimeString() },
+  ]);
+  const [draft, setDraft] = useState("");
+  const [typing, setTyping] = useState(false);
+  const label = modules.find((m) => m.id === activeModule)?.label ?? "Current Module";
+  const fallback: CopilotContext = {
+    tab: activeModule,
+    title: label,
+    summary: "This assistant is context-aware to the current operational tab. Select a break, upload, journal, NAV figure, or workflow item for a sharper explanation.",
+    accountingImpact: "Edits and uploads propagate through validation, breaks, GL, trial balance, P&L, balance sheet, NAV and investor allocation.",
+    navImpact: "Material operational differences remain visible until resolved or approved through maker-checker controls.",
+    recommendedAction: "Use upload validation, break assignment, resolution notes, and workflow approval before publishing NAV.",
+    relatedEntries: ["Current tab", "Audit trail", "Break management", "NAV package"],
+  };
+  const ctx = copilotContext ?? fallback;
+  const suggested = buildSuggestedPrompts(activeModule);
+  const ask = (text: string) => {
+    const question = text.trim();
+    if (!question || typing) return;
+    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", text: question, timestamp: new Date().toLocaleTimeString() };
+    const nextMessages = [...messages, userMessage];
+    setMessages(nextMessages);
+    setDraft("");
+    setTyping(true);
+    window.setTimeout(() => {
+      const answer = generateCopilotReply(question, { active: activeModule, label, r, store, mode: learningMode ? "Learning" : mode, context: ctx, history: nextMessages });
+      setMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", text: answer, timestamp: new Date().toLocaleTimeString() }]);
+      setTyping(false);
+    }, 350);
+  };
+  return (
+    <div className={`copilot-chat ${compact ? "compact" : ""}`}>
+      <div className="ai-mode-toggle"><button className={mode === "Professional" && !learningMode ? "selected" : ""} onClick={() => setMode("Professional")}>Professional</button><button className={mode === "Learning" || learningMode ? "selected" : ""} onClick={() => setMode("Learning")}>Learning</button></div>
+      <div className="chat-window" aria-label="AI Copilot conversation">
+        {messages.map((m) => <div key={m.id} className={`chat-message ${m.role}`}><p>{m.text}</p><span>{m.timestamp}</span></div>)}
+        {typing && <div className="chat-message assistant typing"><p>Analyzing live NAV, breaks, uploads and workflow context...</p></div>}
+      </div>
+      <div className="suggested-prompts">{suggested.map((p) => <button key={p} onClick={() => ask(p)}>{p}</button>)}</div>
+      <form className="chat-input" onSubmit={(e) => { e.preventDefault(); ask(draft); }}>
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Type your question here..." aria-label="Ask the AI Copilot" />
+        <button type="submit" disabled={!draft.trim() || typing}>Ask</button>
+      </form>
+    </div>
+  );
+}
+
 function AICopilotWorkspace() {
   const r = useRecalc();
   const store = useFundStore();
@@ -832,6 +884,7 @@ function AICopilotWorkspace() {
       <div className="ai-prompt-bank">
         {prompts.map((prompt) => <button key={prompt} onClick={() => launchPrompt(prompt)}>{prompt}</button>)}
       </div>
+      <CopilotChatSurface />
       <div className="ai-shortcuts">
         <button className="scenario-button" onClick={() => setActiveModule("nav")}>NAV Package</button>
         <button className="scenario-button" onClick={() => setActiveModule("reconBreaks")}>Breaks Dashboard</button>

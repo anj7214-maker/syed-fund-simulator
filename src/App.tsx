@@ -919,7 +919,6 @@ function CopilotChatSurface({ compact = false }: { compact?: boolean }) {
   };
   return (
     <div className={`copilot-chat ${compact ? "compact" : ""}`}>
-      <CopilotChatSurface compact />
       <div className="question-engine-head">
         <div><b>Suggested Operational Questions</b><span>{effectiveMode} prompts rotate with tab, breaks, uploads and NAV state.</span></div>
         {recommended && <button onClick={() => ask(recommended.text)}>AI recommends: {recommended.text}</button>}

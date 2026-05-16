@@ -3,7 +3,7 @@ import { SignIn, SignedIn, SignedOut, UserButton, useUser } from "@clerk/clerk-r
 import { Activity, AlertTriangle, Banknote, BookOpenCheck, Bot, Brain, Calculator, ChevronRight, Download, FileDown, FileSpreadsheet, Gauge, GitBranch, Landmark, LineChart as LineIcon, LockKeyhole, MessageSquare, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, ShieldAlert, Sigma, SlidersHorizontal, TrendingDown, TrendingUp, UploadCloud, Users } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useFundStore, useRecalc } from "./store/fundStore";
@@ -88,6 +88,13 @@ interface ChatMessage {
   role: ChatRole;
   text: string;
   timestamp: string;
+}
+
+type PromptCategory = "Workflow" | "Accounting" | "NAV Impact" | "Breaks" | "Risk" | "Controls" | "Learning" | "Scenario" | "Audit" | "Validation";
+interface SuggestedQuestion {
+  text: string;
+  category: PromptCategory;
+  mode?: "Learning" | "Professional" | "Both";
 }
 
 function FlashCell({ id, children }: { id: string; children: ReactNode }) {
@@ -222,26 +229,115 @@ function uploadContext(tab: ModuleId, title: string, summary: string): CopilotCo
   };
 }
 
+const q = (text: string, category: PromptCategory, mode: "Learning" | "Professional" | "Both" = "Both"): SuggestedQuestion => ({ text, category, mode });
+
+const coreQuestions: SuggestedQuestion[] = [
+  q("Explain this workflow", "Workflow"),
+  q("What should I review before NAV publish?", "Controls"),
+  q("What is the NAV impact?", "NAV Impact"),
+  q("Which operational controls are missing?", "Controls"),
+  q("Explain maker-checker controls", "Controls", "Learning"),
+  q("What are the highest risk items?", "Risk", "Professional"),
+  q("What should operations validate daily?", "Validation"),
+  q("Show audit-sensitive items", "Audit", "Professional"),
+  q("Explain downstream module dependencies", "Workflow"),
+  q("What can block NAV approval?", "Controls"),
+];
+
+const moduleQuestionBank: Partial<Record<ModuleId, SuggestedQuestion[]>> = {
+  fund: [
+    q("Explain fund structure setup", "Learning"), q("What is the impact of NAV frequency?", "NAV Impact"), q("What happens if valuation cutoff changes?", "NAV Impact"), q("Explain share class workflow", "Workflow"), q("What are common setup mistakes?", "Validation"), q("Explain redemption workflow", "Workflow"), q("What is lock-up period impact?", "Risk"), q("Why is base currency important?", "Accounting"), q("Explain fee structure logic", "Accounting"), q("Explain administrator workflow", "Workflow"), q("What is fund lifecycle?", "Learning"), q("Explain institutional controls", "Controls"), q("Which setup fields impact NAV?", "NAV Impact"), q("Explain operational dependencies", "Workflow"), q("What should be checked before launch?", "Controls"), q("How do terms affect investor liquidity?", "Risk"), q("Which fields drive GL postings?", "Accounting"), q("How should setup changes be approved?", "Audit"),
+  ],
+  holdings: [
+    q("Why did unrealized P&L change?", "NAV Impact"), q("Explain FX impact", "Accounting"), q("Which holdings drive NAV most?", "NAV Impact"), q("Show largest exposure", "Risk"), q("Explain market value calculation", "Learning"), q("Why did exposure increase?", "Risk"), q("Explain concentration risk", "Risk"), q("What happens if quantity changes?", "Workflow"), q("Explain long vs short exposure", "Learning"), q("Why is this position negative?", "Learning"), q("Explain price vs FX P&L", "Accounting"), q("Show highest volatility positions", "Risk"), q("Which holdings impact liquidity?", "Risk"), q("Explain exposure by strategy", "Risk"), q("What is gross vs net exposure?", "Learning"), q("Explain portfolio concentration", "Risk"), q("Why is this holding stale?", "Validation"), q("Explain valuation hierarchy", "Controls"), q("What is settlement impact?", "Workflow"), q("Explain investment classification", "Learning"),
+  ],
+  trades: [
+    q("Explain trade lifecycle", "Workflow"), q("What GL entries were generated?", "Accounting"), q("Why is this trade unsettled?", "Breaks"), q("Explain settlement workflow", "Workflow"), q("What is failed trade impact?", "NAV Impact"), q("Explain broker fee treatment", "Accounting"), q("What operational checks are needed?", "Controls"), q("Explain trade date vs settle date", "Learning"), q("Which trades impact NAV most?", "NAV Impact"), q("Explain trade matching", "Breaks"), q("Why was this journal generated?", "Accounting"), q("Explain booking controls", "Controls"), q("Show largest trades today", "Risk"), q("Explain allocation workflow", "Workflow"), q("What happens after trade upload?", "Validation"), q("Explain custody confirmation", "Workflow"), q("Why is this trade rejected?", "Validation"), q("Explain operational risk", "Risk"), q("Explain trade break causes", "Breaks"), q("What downstream modules update?", "Workflow"),
+  ],
+  cashRecon: [
+    q("Why is this cash break occurring?", "Breaks"), q("What is the root cause?", "Breaks"), q("Is this a timing difference?", "Breaks"), q("What is cash NAV impact?", "NAV Impact"), q("Which cash breaks are highest risk?", "Risk"), q("Explain cash reconciliation methodology", "Learning"), q("Explain cash break workflow", "Workflow"), q("What should be escalated?", "Controls"), q("Explain force-match logic", "Controls"), q("Which cash breaks are aging?", "Audit"), q("Explain operational materiality", "Controls"), q("Which side is incorrect?", "Breaks"), q("Explain custody cash differences", "Breaks"), q("Explain matching tolerance", "Validation"), q("What causes stale breaks?", "Breaks"), q("Explain operational escalation", "Workflow"), q("How do uploaded cash files validate?", "Validation"), q("What journal fixes a cash break?", "Accounting"),
+  ],
+  positionRecon: [
+    q("Why is position mismatching?", "Breaks"), q("What is the root cause?", "Breaks"), q("Is this pending settlement?", "Breaks"), q("What is position NAV impact?", "NAV Impact"), q("Which position breaks are highest risk?", "Risk"), q("Explain position reconciliation methodology", "Learning"), q("What should be escalated?", "Controls"), q("Which breaks are aging?", "Audit"), q("Explain operational materiality", "Controls"), q("Why is this unresolved?", "Breaks"), q("Explain custody differences", "Breaks"), q("Which side is incorrect?", "Breaks"), q("Explain reconciliation controls", "Controls"), q("Show unresolved critical breaks", "Risk"), q("Explain matching tolerance", "Validation"), q("What causes stale positions?", "Validation"), q("Explain operational escalation", "Workflow"), q("What happens after position upload?", "Validation"),
+  ],
+  reconBreaks: [
+    q("Why is this break occurring?", "Breaks"), q("What is the root cause?", "Breaks"), q("Is this a timing difference?", "Breaks"), q("What is NAV impact?", "NAV Impact"), q("Which breaks are highest risk?", "Risk"), q("Explain reconciliation methodology", "Learning"), q("What should be escalated?", "Controls"), q("Explain force-match logic", "Controls"), q("Which breaks are aging?", "Audit"), q("Explain operational materiality", "Controls"), q("Why is this unresolved?", "Breaks"), q("Which side is incorrect?", "Breaks"), q("Explain reconciliation controls", "Controls"), q("Show unresolved critical breaks", "Risk"), q("Explain matching tolerance", "Validation"), q("What causes stale breaks?", "Breaks"), q("Explain operational escalation", "Workflow"), q("How should resolution evidence be documented?", "Audit"), q("Which breaks block NAV publish?", "Controls"),
+  ],
+  exceptions: [
+    q("Analyze open breaks", "Breaks"), q("Which breaks block NAV?", "Controls"), q("Recommend break resolution steps", "Workflow"), q("Show highest NAV impact breaks", "NAV Impact"), q("Which exceptions are aging?", "Audit"), q("Explain escalation urgency", "Risk"), q("What evidence is required?", "Audit"), q("Which exceptions need approval?", "Controls"), q("Explain break materiality", "Controls"), q("What could be written off?", "Accounting"), q("Which exception was upload-generated?", "Validation"), q("Explain operational owner assignment", "Workflow"), q("What is the next best action?", "Workflow"), q("Explain high severity logic", "Risk"), q("Which exceptions impact investors?", "NAV Impact"),
+  ],
+  gl: [
+    q("Explain this journal", "Accounting"), q("Why was this entry posted?", "Accounting"), q("What is debit/credit logic?", "Learning"), q("Which module generated this?", "Workflow"), q("Explain accrual accounting", "Accounting"), q("Explain realized vs unrealized", "Learning"), q("Why is this account moving?", "Accounting"), q("Explain auto-posting engine", "Workflow"), q("What impacts trial balance?", "Accounting"), q("Explain fee accrual posting", "Accounting"), q("Explain FX journal logic", "Accounting"), q("Which entries impact NAV?", "NAV Impact"), q("Explain accounting controls", "Controls"), q("Why is balance changing?", "Accounting"), q("Explain operational accounting", "Learning"), q("Explain ledger hierarchy", "Learning"), q("Show largest postings today", "Risk"), q("Explain reversal entries", "Accounting"), q("What journals are pending approval?", "Controls"), q("Explain accounting workflow", "Workflow"),
+  ],
+  trialBalance: [
+    q("Explain trial balance status", "Accounting"), q("What causes imbalance?", "Breaks"), q("Which accounts moved?", "Accounting"), q("Which entries impact NAV?", "NAV Impact"), q("Explain debit and credit equality", "Learning"), q("What should controller review?", "Controls"), q("Explain TB validation checks", "Validation"), q("Which GL source caused movement?", "Workflow"), q("What breaks financial statements?", "Risk"), q("Explain balance substantiation", "Audit"), q("Show largest account balances", "Risk"), q("Explain account categories", "Learning"), q("What is pending approval?", "Controls"), q("How does TB feed NAV?", "NAV Impact"), q("Explain audit controls", "Audit"),
+  ],
+  nav: [
+    q("Why did NAV move today?", "NAV Impact"), q("Which holdings contributed most?", "NAV Impact"), q("What caused fee increase?", "Accounting"), q("Explain NAV waterfall", "Learning"), q("What is investor impact?", "NAV Impact"), q("Explain equalization", "Accounting"), q("Why did NAV/share change?", "NAV Impact"), q("Which breaks affect NAV?", "Breaks"), q("Explain accrual impact", "Accounting"), q("What changed since yesterday?", "NAV Impact"), q("Explain expense allocation", "Accounting"), q("What is gross vs net NAV?", "Learning"), q("Explain performance fee logic", "Accounting"), q("Why is exposure increasing?", "Risk"), q("Which modules updated NAV?", "Workflow"), q("Explain valuation controls", "Controls"), q("What is material NAV movement?", "Controls"), q("Explain investor allocation", "Accounting"), q("What drives daily NAV?", "Learning"), q("Explain NAV validation checks", "Validation"),
+  ],
+  corporateActions: [
+    q("Explain dividend accrual process", "Accounting"), q("Explain withholding tax treatment", "Accounting"), q("What happens on pay date?", "Workflow"), q("How is entitlement calculated?", "Accounting"), q("Which corporate actions affect NAV?", "NAV Impact"), q("What is ex-date vs record date?", "Learning"), q("Explain receivable generation", "Accounting"), q("What breaks can corporate actions create?", "Breaks"), q("Explain voluntary event controls", "Controls"), q("How should announcements be validated?", "Validation"), q("What audit evidence is required?", "Audit"), q("Explain stock split impact", "Workflow"), q("Explain coupon processing", "Accounting"), q("Which events are pending posting?", "Workflow"), q("What is cash settlement impact?", "NAV Impact"),
+  ],
+  pricing: [
+    q("Analyze price tolerance breaches", "Validation"), q("Why did NAV change after price update?", "NAV Impact"), q("Explain price challenge workflow", "Workflow"), q("Which prices are stale?", "Validation"), q("Explain pricing hierarchy", "Controls"), q("Which securities need independent pricing?", "Controls"), q("What is prior-day variance?", "Risk"), q("Explain manual override controls", "Audit"), q("Which prices affect fees?", "Accounting"), q("What is level 3 valuation risk?", "Risk"), q("How does pricing feed GL?", "Accounting"), q("What should valuations review?", "Controls"), q("Explain vendor file validation", "Validation"), q("Which holdings moved most?", "NAV Impact"), q("What blocks price approval?", "Workflow"),
+  ],
+  fx: [
+    q("Explain FX translation impact", "Accounting"), q("Which currencies moved NAV?", "NAV Impact"), q("What happens if FX rate changes?", "NAV Impact"), q("Explain realized vs unrealized FX", "Accounting"), q("Which holdings have FX exposure?", "Risk"), q("What is base currency impact?", "Learning"), q("Explain FX source controls", "Controls"), q("Which FX rates are stale?", "Validation"), q("How does FX feed GL?", "Accounting"), q("Explain currency concentration", "Risk"), q("What should treasury validate?", "Controls"), q("Explain FX matrix workflow", "Workflow"), q("Which investors are impacted by FX?", "NAV Impact"), q("What causes FX breaks?", "Breaks"), q("Explain FX shock scenario", "Scenario"),
+  ],
+  mgmtFees: [
+    q("Explain management fee accrual", "Accounting"), q("Show fee impact on NAV", "NAV Impact"), q("What changes if fee percent changes?", "NAV Impact"), q("Explain daily accrual logic", "Learning"), q("Which investors pay fees?", "Accounting"), q("Explain fee waiver treatment", "Accounting"), q("How is fee payable posted?", "Accounting"), q("What should be approved?", "Controls"), q("Explain tiered fee controls", "Controls"), q("Which fee entries hit GL?", "Accounting"), q("How do fees affect NAV/share?", "NAV Impact"), q("Explain audit trail for fee changes", "Audit"), q("What validation checks apply?", "Validation"), q("Explain expense allocation", "Accounting"), q("What is monthly crystallization impact?", "Workflow"),
+  ],
+  perfFees: [
+    q("Explain performance fee", "Accounting"), q("How does HWM work?", "Learning"), q("Why did performance fee increase?", "NAV Impact"), q("Explain hurdle rate", "Learning"), q("What is crystallization?", "Accounting"), q("Explain equalization credits", "Accounting"), q("Which investors are impacted?", "NAV Impact"), q("What approval is required?", "Controls"), q("How is fee payable posted?", "Accounting"), q("What causes fee reversal?", "Accounting"), q("Explain fee waterfall", "Workflow"), q("What is audit risk?", "Audit"), q("What validation checks apply?", "Validation"), q("How does NAV movement affect fees?", "NAV Impact"), q("Explain investor-level HWM", "Learning"),
+  ],
+  workflow: [
+    q("How do I publish NAV?", "Workflow"), q("Explain maker-checker approval", "Controls"), q("What blocks approval?", "Controls"), q("Which items are pending review?", "Workflow"), q("What should reviewer check?", "Controls"), q("Explain rejection workflow", "Workflow"), q("What audit history is needed?", "Audit"), q("Which high breaks remain open?", "Risk"), q("Explain NAV status lifecycle", "Learning"), q("What is Posted vs Published?", "Learning"), q("What evidence should be attached?", "Audit"), q("How do approvals affect GL?", "Accounting"), q("Explain operational sign-off", "Controls"), q("Which modules must be approved?", "Workflow"), q("What is next best action?", "Workflow"),
+  ],
+  risk: [
+    q("Explain exposure changes", "Risk"), q("Show largest strategy risk", "Risk"), q("What is concentration risk?", "Learning"), q("Which holdings drive gross exposure?", "Risk"), q("Explain net vs gross exposure", "Learning"), q("Which currencies are concentrated?", "Risk"), q("Explain liquidity risk", "Risk"), q("What scenario should I run?", "Scenario"), q("Which counterparty is largest?", "Risk"), q("Explain leverage impact", "Risk"), q("Which breaks create risk?", "Breaks"), q("What is NAV risk today?", "NAV Impact"), q("Explain risk controls", "Controls"), q("What changed after stress?", "Scenario"), q("Which exposures affect investors?", "NAV Impact"),
+  ],
+  stress: [
+    q("Explain scenario impact", "Scenario"), q("What moved NAV?", "NAV Impact"), q("Which investors are impacted?", "NAV Impact"), q("Explain market crash scenario", "Scenario"), q("Explain FX shock scenario", "Scenario"), q("Explain redemption run liquidity", "Risk"), q("Explain rate hike impact", "Scenario"), q("Which holdings are most sensitive?", "Risk"), q("What fees changed?", "Accounting"), q("What breaks could this create?", "Breaks"), q("What controls should run after stress?", "Controls"), q("Explain stress testing workflow", "Learning"), q("Which exposures changed?", "Risk"), q("What should be escalated?", "Workflow"), q("Explain liquidity pressure", "Risk"),
+  ],
+  scenario: [
+    q("Explain scenario impact", "Scenario"), q("What moved NAV?", "NAV Impact"), q("Which investors are impacted?", "NAV Impact"), q("Recommend next scenario", "Scenario"), q("Explain scenario assumptions", "Learning"), q("Which modules updated?", "Workflow"), q("What controls should run after scenario?", "Controls"), q("Which risk changed most?", "Risk"), q("How did FX affect the result?", "Accounting"), q("What broke after scenario?", "Breaks"), q("Explain scenario audit trail", "Audit"), q("What is operational response?", "Workflow"), q("Explain liquidity impact", "Risk"), q("Explain fee impact", "Accounting"), q("What is NAV materiality?", "Controls"),
+  ],
+};
+
+const getQuestionsForModule = (active: ModuleId) => moduleQuestionBank[active] ?? coreQuestions;
+
 function buildSuggestedPrompts(active: ModuleId) {
-  const defaults = ["Explain this workflow", "What is the NAV impact?", "What should I review next?"];
-  const byTab: Partial<Record<ModuleId, string[]>> = {
-    holdings: ["Explain unrealized P&L", "Show biggest exposure", "Explain FX impact"],
-    pricing: ["Analyze price tolerance breaches", "Why did NAV change after price update?", "Explain price challenge workflow"],
-    cashRecon: ["Analyze cash breaks", "Is this timing or real break?", "How do I upload custody cash?"],
-    positionRecon: ["Analyze position differences", "Which side is mismatching?", "How do I resolve failed trades?"],
-    reconBreaks: ["Show highest NAV impact breaks", "Explain unresolved items", "How do I escalate a break?"],
-    exceptions: ["Analyze open breaks", "Which breaks block NAV?", "Recommend break resolution steps"],
-    gl: ["Explain journal logic", "Why do debits equal credits?", "Show source modules"],
-    trialBalance: ["Explain trial balance status", "What causes imbalance?", "Which accounts moved?"],
-    nav: ["Why did NAV move today?", "Explain NAV waterfall", "Explain fee accruals"],
-    corporateActions: ["Explain dividend accrual", "Explain withholding tax", "What happens on pay date?"],
-    mgmtFees: ["Explain management fee accrual", "Show fee impact on NAV", "What changes if fee percent changes?"],
-    perfFees: ["Explain performance fee", "How does HWM work?", "Why did performance fee increase?"],
-    workflow: ["How do I publish NAV?", "Explain maker-checker approval", "What blocks approval?"],
-    risk: ["Explain exposure changes", "Show largest strategy risk", "What is concentration risk?"],
-    stress: ["Explain scenario impact", "What moved NAV?", "Which investors are impacted?"],
-  };
-  return byTab[active] ?? defaults;
+  return getQuestionsForModule(active).slice(0, 6).map((question) => question.text);
+}
+
+function buildOperationalQuestions(args: {
+  active: ModuleId;
+  mode: "Learning" | "Professional";
+  store: FundState;
+  r: ReturnType<typeof useRecalc>;
+  rotation: number;
+}) {
+  const { active, mode, store, r, rotation } = args;
+  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const criticalBreaks = openBreaks.filter((b) => b.severity === "High");
+  const latestUpload = store.uploads[0];
+  const dynamic: SuggestedQuestion[] = [
+    ...(criticalBreaks.length ? [q(`Explain the ${criticalBreaks.length} high-severity break(s) blocking NAV`, "Breaks", "Professional")] : []),
+    ...(openBreaks.length ? [q(`Which of the ${openBreaks.length} open breaks should I resolve first?`, "Breaks")] : []),
+    ...(latestUpload ? [q(`Review validation issues in ${latestUpload.fileName}`, "Validation")] : []),
+    ...(Math.abs(r.fxGainLoss) > 100000 ? [q(`Explain today's FX NAV impact of ${fmt(r.fxGainLoss, true)}`, "NAV Impact")] : []),
+    ...(store.fundSetup.workflowStatus !== "NAV Published" ? [q(`What remains before ${store.fundSetup.workflowStatus} can move to NAV Published?`, "Workflow")] : []),
+    ...(r.managementFee + r.performanceFee > 0 ? [q("Explain current management and performance fee impact", "Accounting")] : []),
+  ];
+  const pool = [...dynamic, ...getQuestionsForModule(active), ...coreQuestions].filter((item, index, list) =>
+    list.findIndex((candidate) => candidate.text === item.text) === index
+  );
+  const modeFiltered = pool.filter((item) => item.mode === "Both" || !item.mode || item.mode === mode);
+  const source = modeFiltered.length >= 8 ? modeFiltered : pool;
+  const rotated = source.map((item, index) => ({ item, rank: (index - rotation + source.length) % source.length }))
+    .sort((a, b) => a.rank - b.rank)
+    .map(({ item }) => item);
+  return rotated;
 }
 
 function generateCopilotReply(question: string, args: {
@@ -776,7 +872,12 @@ function CopilotChatSurface({ compact = false }: { compact?: boolean }) {
   ]);
   const [draft, setDraft] = useState("");
   const [typing, setTyping] = useState(false);
+  const [rotation, setRotation] = useState(0);
+  const [showMore, setShowMore] = useState(false);
+  const [category, setCategory] = useState<PromptCategory | "All">("All");
+  const [recentQuestions, setRecentQuestions] = useState<string[]>([]);
   const label = modules.find((m) => m.id === activeModule)?.label ?? "Current Module";
+  const effectiveMode = learningMode ? "Learning" : mode;
   const fallback: CopilotContext = {
     tab: activeModule,
     title: label,
@@ -787,29 +888,58 @@ function CopilotChatSurface({ compact = false }: { compact?: boolean }) {
     relatedEntries: ["Current tab", "Audit trail", "Break management", "NAV package"],
   };
   const ctx = copilotContext ?? fallback;
-  const suggested = buildSuggestedPrompts(activeModule);
+  useEffect(() => {
+    const timer = window.setInterval(() => setRotation((value) => value + 1), compact ? 9000 : 7000);
+    return () => window.clearInterval(timer);
+  }, [compact, activeModule]);
+  useEffect(() => {
+    setRotation(0);
+    setShowMore(false);
+    setCategory("All");
+  }, [activeModule, effectiveMode]);
+  const suggestions = buildOperationalQuestions({ active: activeModule, mode: effectiveMode, store, r, rotation });
+  const categories = Array.from(new Set(suggestions.map((item) => item.category))).slice(0, compact ? 5 : 10);
+  const filteredSuggestions = category === "All" ? suggestions : suggestions.filter((item) => item.category === category);
+  const visibleSuggestions = filteredSuggestions.slice(0, showMore ? (compact ? 12 : 20) : (compact ? 6 : 10));
+  const recommended = suggestions[0];
   const ask = (text: string) => {
     const question = text.trim();
     if (!question || typing) return;
     const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", text: question, timestamp: new Date().toLocaleTimeString() };
     const nextMessages = [...messages, userMessage];
     setMessages(nextMessages);
+    setRecentQuestions((items) => [question, ...items.filter((item) => item !== question)].slice(0, 5));
     setDraft("");
     setTyping(true);
     window.setTimeout(() => {
-      const answer = generateCopilotReply(question, { active: activeModule, label, r, store, mode: learningMode ? "Learning" : mode, context: ctx, history: nextMessages });
+      const answer = generateCopilotReply(question, { active: activeModule, label, r, store, mode: effectiveMode, context: ctx, history: nextMessages });
       setMessages((current) => [...current, { id: crypto.randomUUID(), role: "assistant", text: answer, timestamp: new Date().toLocaleTimeString() }]);
       setTyping(false);
     }, 350);
   };
   return (
     <div className={`copilot-chat ${compact ? "compact" : ""}`}>
-      <div className="ai-mode-toggle"><button className={mode === "Professional" && !learningMode ? "selected" : ""} onClick={() => setMode("Professional")}>Professional</button><button className={mode === "Learning" || learningMode ? "selected" : ""} onClick={() => setMode("Learning")}>Learning</button></div>
+      <CopilotChatSurface compact />
+      <div className="question-engine-head">
+        <div><b>Suggested Operational Questions</b><span>{effectiveMode} prompts rotate with tab, breaks, uploads and NAV state.</span></div>
+        {recommended && <button onClick={() => ask(recommended.text)}>AI recommends: {recommended.text}</button>}
+      </div>
+      <div className="question-categories">
+        <button className={category === "All" ? "selected" : ""} onClick={() => setCategory("All")}>All</button>
+        {categories.map((item) => <button key={item} className={category === item ? "selected" : ""} onClick={() => setCategory(item)}>{item}</button>)}
+      </div>
+      <div className="suggested-prompts question-grid">
+        {visibleSuggestions.map((prompt) => <button key={`${prompt.category}-${prompt.text}`} onClick={() => ask(prompt.text)}><span>{prompt.category}</span>{prompt.text}</button>)}
+      </div>
+      <div className="question-footer">
+        <button className="link-button" onClick={() => setShowMore((value) => !value)}>{showMore ? "Show fewer" : `Show more (${filteredSuggestions.length})`}</button>
+        <button className="link-button" onClick={() => setRotation((value) => value + 4)}>Rotate questions</button>
+      </div>
+      {recentQuestions.length ? <div className="recent-questions"><span>Recently asked</span>{recentQuestions.map((item) => <button key={item} onClick={() => ask(item)}>{item}</button>)}</div> : null}
       <div className="chat-window" aria-label="AI Copilot conversation">
         {messages.map((m) => <div key={m.id} className={`chat-message ${m.role}`}><p>{m.text}</p><span>{m.timestamp}</span></div>)}
         {typing && <div className="chat-message assistant typing"><p>Analyzing live NAV, breaks, uploads and workflow context...</p></div>}
       </div>
-      <div className="suggested-prompts">{suggested.map((p) => <button key={p} onClick={() => ask(p)}>{p}</button>)}</div>
       <form className="chat-input" onSubmit={(e) => { e.preventDefault(); ask(draft); }}>
         <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Type your question here..." aria-label="Ask the AI Copilot" />
         <button type="submit" disabled={!draft.trim() || typing}>Ask</button>
@@ -937,14 +1067,6 @@ function ModuleContent() {
 
 function CopilotPanel() {
   const { aiPanelOpen, setAiPanelOpen, copilotContext, activeModule, learningMode } = useFundStore();
-  const store = useFundStore();
-  const r = useRecalc();
-  const [mode, setMode] = useState<"Learning" | "Professional">("Professional");
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: "welcome", role: "assistant", text: "I am your institutional operations copilot. Ask me about NAV movement, breaks, uploads, GL postings, fee accruals, or workflow approvals.", timestamp: new Date().toLocaleTimeString() },
-  ]);
-  const [draft, setDraft] = useState("");
-  const [typing, setTyping] = useState(false);
   const label = modules.find((m) => m.id === activeModule)?.label ?? "Current Module";
   if (!aiPanelOpen) return <button className="ai-rail" onClick={() => setAiPanelOpen(true)}><Bot size={18} /></button>;
   const fallback: CopilotContext = {
@@ -957,34 +1079,11 @@ function CopilotPanel() {
     relatedEntries: ["Current tab", "Audit trail", "Break management", "NAV package"],
   };
   const ctx = copilotContext ?? fallback;
-  const suggested = buildSuggestedPrompts(activeModule);
-  const ask = (text: string) => {
-    const question = text.trim();
-    if (!question || typing) return;
-    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", text: question, timestamp: new Date().toLocaleTimeString() };
-    setMessages((m) => [...m, userMessage]);
-    setDraft("");
-    setTyping(true);
-    window.setTimeout(() => {
-      const answer = generateCopilotReply(question, { active: activeModule, label, r, store, mode: learningMode ? "Learning" : mode, context: ctx, history: [...messages, userMessage] });
-      setMessages((m) => [...m, { id: crypto.randomUUID(), role: "assistant", text: answer, timestamp: new Date().toLocaleTimeString() }]);
-      setTyping(false);
-    }, 450);
-  };
   return (
     <aside className="ai-panel">
-      <div className="ai-title"><Bot size={18} /><b>Institutional AI Copilot</b><button onClick={() => setAiPanelOpen(false)}>×</button></div>
-      <div className="ai-mode">{learningMode ? "Learning Mode enabled" : `${mode} Mode`} · {label}</div>
-      <div className="ai-mode-toggle"><button className={mode === "Professional" && !learningMode ? "selected" : ""} onClick={() => setMode("Professional")}>Professional</button><button className={mode === "Learning" || learningMode ? "selected" : ""} onClick={() => setMode("Learning")}>Learning</button></div>
-      <div className="chat-window">
-        {messages.map((m) => <div key={m.id} className={`chat-message ${m.role}`}><p>{m.text}</p><span>{m.timestamp}</span></div>)}
-        {typing && <div className="chat-message assistant typing"><p>Analyzing live NAV, breaks, uploads and workflow context...</p></div>}
-      </div>
-      <div className="suggested-prompts">{suggested.map((p) => <button key={p} onClick={() => ask(p)}>{p}</button>)}</div>
-      <form className="chat-input" onSubmit={(e) => { e.preventDefault(); ask(draft); }}>
-        <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Ask about NAV, breaks, GL, uploads..." />
-        <button type="submit">Ask</button>
-      </form>
+      <div className="ai-title"><Bot size={18} /><b>Institutional AI Copilot</b><button onClick={() => setAiPanelOpen(false)}>x</button></div>
+      <div className="ai-mode">{learningMode ? "Learning Mode enabled" : "Professional Mode"} - {label}</div>
+      <CopilotChatSurface compact />
       <section><h3>{ctx.title}</h3><p>{ctx.summary}</p></section>
       <section><h4>Accounting Impact</h4><p>{ctx.accountingImpact}</p></section>
       <section><h4>NAV Impact</h4><p>{ctx.navImpact}</p></section>
@@ -994,7 +1093,6 @@ function CopilotPanel() {
     </aside>
   );
 }
-
 function AuthGate({ children }: { children: ReactNode }) {
   const { user, isLoaded } = useUser();
   const approvedEmails = (import.meta.env.VITE_APPROVED_EMAILS as string | undefined)

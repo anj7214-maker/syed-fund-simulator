@@ -112,13 +112,25 @@ export function recalculate(params: {
   const holdingsRaw = params.holdings.map((h) => ({ ...h, fxRate: params.fxRates.find((fx) => fx.base === h.currency)?.rate ?? h.fxRate }));
   const grossExposure = holdingsRaw.reduce((sum, h) => sum + Math.abs(signedValue(h)), 0);
   const holdings = holdingsRaw.map((h) => {
-    const mv = signedValue(h);
-    const cv = costValue(h);
+    const localMarketValue = h.quantity * h.marketPrice;
+    const localCostValue = h.quantity * h.costPrice;
+    const costFx = h.costFx ?? h.fxRate;
+    const mv = localMarketValue * h.fxRate;
+    const cv = localCostValue * costFx;
+    const pricePnl = (h.marketPrice - h.costPrice) * h.quantity * costFx;
+    const fxPnl = localMarketValue * (h.fxRate - costFx);
+    const totalUnrealizedPnl = pricePnl + fxPnl;
     return {
       ...h,
       marketValue: round(mv),
       costValue: round(cv),
-      unrealized: round(mv - cv),
+      totalCost: round(cv),
+      localMarketValue: round(localMarketValue),
+      baseMarketValue: round(mv),
+      pricePnl: round(pricePnl),
+      fxPnl: round(fxPnl),
+      totalUnrealizedPnl: round(totalUnrealizedPnl),
+      unrealized: round(totalUnrealizedPnl),
       exposurePct: grossExposure ? round((Math.abs(mv) / grossExposure) * 100, 2) : 0,
       priceMovePct: h.priorPrice ? round(((h.marketPrice - h.priorPrice) / h.priorPrice) * 100, 2) : 0,
     };

@@ -454,7 +454,7 @@ function Sidebar() {
 }
 
 function Header() {
-  const { fundMode, setFundMode, reset, learningMode, toggleLearningMode, setAiPanelOpen, activeScenarioImpact, breaks } = useFundStore();
+  const { fundMode, setFundMode, reset, trainingMode, setTrainingMode, setAiPanelOpen, activeScenarioImpact, breaks } = useFundStore();
   const r = useRecalc();
   const active = useFundStore((s) => s.activeModule);
   const label = modules.find((m) => m.id === active)?.label;
@@ -480,7 +480,7 @@ function Header() {
         <div className="status-pill bad">Open breaks {openBreakCount(useFundStore.getState())}</div>
         <div className={`status-pill ${mat.tone}`}>Materiality {mat.label}</div>
         <div className="status-pill">Updated {pulse.data?.at ?? "live"}</div>
-        <button className={`terminal-button ${learningMode ? "selected" : ""}`} onClick={toggleLearningMode}><Brain size={15} /> {learningMode ? "Learning" : "Operations"}</button>
+        <button className={`terminal-button ${trainingMode === "Sandbox" ? "selected" : ""}`} onClick={() => setTrainingMode(trainingMode === "Sandbox" ? "Live Mode" : "Sandbox")}><Brain size={15} /> {trainingMode}</button>
         <button className="terminal-button" onClick={() => setAiPanelOpen(true)}><Bot size={15} /> AI Copilot</button>
         <button className="terminal-button" onClick={reset}><RefreshCw size={15} /> Reset book</button>
         <UserButton afterSignOutUrl="/" />
@@ -889,17 +889,17 @@ function impactDelta(before = 0, after = 0) {
 }
 
 function ManualEditModeBar() {
-  const { manualEditMode, toggleManualEditMode, activeScenarioImpact } = useFundStore();
+  const { manualEditMode, toggleManualEditMode, activeScenarioImpact, trainingMode } = useFundStore();
   const nav = activeScenarioImpact ? impactDelta(activeScenarioImpact.before.nav, activeScenarioImpact.after.nav) : null;
   return (
     <div className="edit-mode-bar">
       <div>
-        <b>Manual Data Edit Mode</b>
-        <span>{manualEditMode ? "Enabled - edits recalculate NAV, GL, P&L, balance sheet, fees, breaks and audit trail." : "Disabled - use scenario controls or enable edits to practice manual amendments."}</span>
+        <b>{trainingMode === "Sandbox" ? "Sandbox Manual Intervention" : "Manual Data Edit Mode"}</b>
+        <span>{manualEditMode ? "Enabled - type numbers into the workbench and the simulator recalculates NAV, GL, P&L, cash, investor allocation, breaks and audit trail." : "Disabled - enable edits to test operational amendments and see downstream impact."}</span>
       </div>
       {nav && <div className="impact-mini"><span>NAV Impact</span><b className={nav.delta >= 0 ? "text-good" : "text-bad"}>{fmt(nav.delta, true)} / {(nav.pctMove * 100).toFixed(2)}%</b></div>}
       <button className={`terminal-button ${manualEditMode ? "selected" : ""}`} onClick={toggleManualEditMode}>
-        <SlidersHorizontal size={15} /> {manualEditMode ? "Edit Data On" : "Edit Data"}
+        <SlidersHorizontal size={15} /> {manualEditMode ? "Manual Input On" : "Allow Manual Input"}
       </button>
     </div>
   );
@@ -1004,8 +1004,13 @@ function ScenarioLabView() {
   const nav = store.activeScenarioImpact ? impactDelta(store.activeScenarioImpact.before.nav, store.activeScenarioImpact.after.nav) : null;
   return (
     <section className="panel full scenario-lab">
-      <PanelTitle title="Scenario Simulation" right="Select, inject, edit, and trace NAV impact" />
+      <PanelTitle title="Scenario Simulation Sandbox" right="Input numbers, intervene manually, and trace NAV impact" />
       <ManualEditModeBar />
+      <div className="sandbox-explainer">
+        <div><b>What you can do</b><span>Select a scenario, start investigation, then edit prices, quantities, fees, FX-sensitive values, capital, MTM or collateral depending on the module.</span></div>
+        <div><b>What updates live</b><span>NAV, NAV/share, P&L, GL, trial balance, cash, investor allocation, risk severity, materiality and exception controls.</span></div>
+        <div><b>What to observe</b><span>The right Impact Summary and bottom Dependency Flow show how one input creates a full operational ripple effect.</span></div>
+      </div>
       <div className="scenario-filters">
         <select className="terminal-select" value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value as ModuleId | "All")}>
           <option>All</option>
@@ -1094,7 +1099,7 @@ function OperationalBottomPanel() {
 }
 
 function CopilotChatSurface({ compact = false }: { compact?: boolean }) {
-  const { copilotContext, activeModule, learningMode } = useFundStore();
+  const { copilotContext, activeModule, trainingMode } = useFundStore();
   const store = useFundStore();
   const r = useRecalc();
   const [mode, setMode] = useState<"Learning" | "Professional">("Professional");
@@ -1108,7 +1113,7 @@ function CopilotChatSurface({ compact = false }: { compact?: boolean }) {
   const [category, setCategory] = useState<PromptCategory | "All">("All");
   const [recentQuestions, setRecentQuestions] = useState<string[]>([]);
   const label = modules.find((m) => m.id === activeModule)?.label ?? "Current Module";
-  const effectiveMode = learningMode ? "Learning" : mode;
+  const effectiveMode = trainingMode === "Sandbox" ? "Learning" : mode;
   const fallback: CopilotContext = {
     tab: activeModule,
     title: label,
@@ -1181,7 +1186,7 @@ function CopilotChatSurface({ compact = false }: { compact?: boolean }) {
 function AICopilotWorkspace() {
   const r = useRecalc();
   const store = useFundStore();
-  const { setAiPanelOpen, toggleLearningMode, learningMode, explainContext, setActiveModule } = store;
+  const { setAiPanelOpen, setTrainingMode, trainingMode, explainContext, setActiveModule } = store;
   const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
   const latestUpload = store.uploads[0];
   const largestHolding = [...r.holdings].sort((a, b) => Math.abs(b.baseMarketValue) - Math.abs(a.baseMarketValue))[0];
@@ -1216,7 +1221,7 @@ function AICopilotWorkspace() {
         </div>
         <div className="ai-launch-actions">
           <button className="terminal-button selected" onClick={() => setAiPanelOpen(true)}><Bot size={16} /> Open AI Chat</button>
-          <button className={`terminal-button ${learningMode ? "selected" : ""}`} onClick={toggleLearningMode}><Brain size={16} /> {learningMode ? "Learning Mode On" : "Enable Learning Mode"}</button>
+          <button className={`terminal-button ${trainingMode === "Sandbox" ? "selected" : ""}`} onClick={() => setTrainingMode(trainingMode === "Sandbox" ? "Live Mode" : "Sandbox")}><Brain size={16} /> {trainingMode}</button>
         </div>
       </div>
       <div className="ai-context-grid">
@@ -1298,7 +1303,7 @@ function ModuleContent() {
 }
 
 function CopilotPanel() {
-  const { aiPanelOpen, setAiPanelOpen, copilotContext, activeModule, learningMode } = useFundStore();
+  const { aiPanelOpen, setAiPanelOpen, copilotContext, activeModule, trainingMode } = useFundStore();
   const label = modules.find((m) => m.id === activeModule)?.label ?? "Current Module";
   if (!aiPanelOpen) return <button className="ai-rail" onClick={() => setAiPanelOpen(true)}><Bot size={18} /></button>;
   const fallback: CopilotContext = {
@@ -1314,7 +1319,7 @@ function CopilotPanel() {
   return (
     <aside className="ai-panel">
       <div className="ai-title"><Bot size={18} /><b>Institutional AI Copilot</b><button onClick={() => setAiPanelOpen(false)}>x</button></div>
-      <div className="ai-mode">{learningMode ? "Learning Mode enabled" : "Professional Mode"} - {label}</div>
+      <div className="ai-mode">{trainingMode === "Sandbox" ? "Sandbox guidance enabled" : "Live Mode"} - {label}</div>
       <ImpactSummaryPanel />
       <CopilotChatSurface compact />
       <section><h3>{ctx.title}</h3><p>{ctx.summary}</p></section>

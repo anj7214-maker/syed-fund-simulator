@@ -105,8 +105,8 @@ export const useFundStore = create<FundState>()(
       positionRecon: samplePositionRecon,
       breaks: sampleBreaks,
       uploads: sampleUploads,
-      learningMode: false,
-      trainingMode: "Learning Mode",
+      learningMode: true,
+      trainingMode: "Sandbox",
       manualEditMode: true,
       aiPanelOpen: true,
       copilotContext: null,
@@ -265,9 +265,9 @@ export const useFundStore = create<FundState>()(
       toggleLearningMode: () => set((s) => ({ learningMode: !s.learningMode, aiPanelOpen: true })),
       setTrainingMode: (trainingMode) => set((s) => ({
         trainingMode,
-        learningMode: trainingMode === "Learning Mode" ? true : s.learningMode,
+        learningMode: trainingMode === "Sandbox",
         aiPanelOpen: true,
-        auditTrail: [audit("Training mode", s.trainingMode, trainingMode, ["scenario", "aiCopilot", "audit"], "Scenario training mode"), ...s.auditTrail].slice(0, 100),
+        auditTrail: [audit("Operating mode", s.trainingMode, trainingMode, ["scenario", "aiCopilot", "audit"], "Mode switch"), ...s.auditTrail].slice(0, 100),
       })),
       toggleManualEditMode: () => set((s) => ({
         manualEditMode: !s.manualEditMode,

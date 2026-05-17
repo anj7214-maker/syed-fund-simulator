@@ -138,7 +138,7 @@ export type UploadModule = "cashRecon" | "positionRecon" | "trades" | "security"
 export type ValidationSeverity = "Info" | "Warning" | "Critical";
 export type ScenarioDifficulty = "Beginner" | "Intermediate" | "Advanced" | "Real World Ops" | "NAV Oversight" | "Crisis Simulation";
 export type ScenarioFundType = "Hedge Fund" | "Long Only Fund" | "Fund of Funds" | "ETF" | "Multi-Strategy Fund" | "Credit Fund" | "Private Equity Fund" | "Real Estate Fund";
-export type TrainingMode = "Learning Mode" | "Operations Mode";
+export type TrainingMode = "Sandbox" | "Live Mode";
 
 export interface ValidationIssue {
   id: string;

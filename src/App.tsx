@@ -9,7 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useFundStore, useRecalc } from "./store/fundStore";
 import type { FundState } from "./store/fundStore";
 import { scenarioCatalog, scenariosForModule } from "./engine/scenarioEngine";
-import { CopilotContext, ModuleId, ScenarioDefinition, ScenarioDifficulty, TrainingMode, UploadModule } from "./types";
+import { CopilotContext, ModuleId, ScenarioDefinition, ScenarioDifficulty, UploadModule } from "./types";
 
 const modules: Array<{ id: ModuleId; label: string; icon: typeof Activity }> = [
   { id: "dashboard", label: "Executive Dashboard", icon: Gauge },
@@ -936,79 +936,60 @@ function ScenarioCard({ scenario, compact = false }: { scenario: ScenarioDefinit
   );
 }
 
-function PracticeScenariosPanel({ active }: { active: ModuleId }) {
-  const { trainingMode, setTrainingMode, activeScenarioImpact, activeScenarioId, submitScenario, resetScenario, scenarioRuns, applyScenario, explainContext } = useFundStore();
-  const moduleScenarios = scenariosForModule(active);
-  const activeScenario = scenarioCatalog.find((scenario) => scenario.id === activeScenarioId);
-  const recommendedScenario = activeScenario ?? moduleScenarios[0] ?? scenarioCatalog[0];
-  const [answer, setAnswer] = useState("");
-  if (active === "aiCopilot" || active === "exports" || active === "audit") return null;
-  const nav = activeScenarioImpact ? impactDelta(activeScenarioImpact.before.nav, activeScenarioImpact.after.nav) : null;
-  const latestRun = scenarioRuns[0];
-  const modes: TrainingMode[] = ["Learning Mode", "Operations Mode"];
-  const isLearning = trainingMode === "Learning Mode";
-  return (
-    <section className="panel full practice-panel">
-      <PanelTitle title={isLearning ? "Practice Scenario" : "Operations Mode"} right={isLearning ? "One operational case at a time" : "Scenario training hidden"} />
-      <ManualEditModeBar />
-      <div className="training-mode-row">
-        {modes.map((mode) => <button key={mode} className={`terminal-button ${trainingMode === mode ? "selected" : ""}`} onClick={() => setTrainingMode(mode)}>{mode}</button>)}
-        {isLearning && latestRun && <span>Workflow status: <b>{latestRun.status}</b></span>}
-        {!isLearning && <span>Live operations view: <b>scenarios hidden</b></span>}
-      </div>
-      {isLearning && !activeScenario && recommendedScenario && (
-        <div className="single-scenario">
-          <div>
-            <span>{recommendedScenario.difficulty} · {recommendedScenario.materialityLevel}</span>
-            <b>{recommendedScenario.scenarioName}</b>
-            <p>{recommendedScenario.businessContext}</p>
-            <small>{recommendedScenario.objective}</small>
-          </div>
-          <div className="scenario-card-actions">
-            <button className="terminal-button selected" onClick={() => applyScenario(recommendedScenario.id)}>Start Investigation</button>
-            <button className="terminal-button" onClick={() => explainContext({
-              tab: recommendedScenario.module,
-              title: recommendedScenario.scenarioName,
-              summary: recommendedScenario.businessContext,
-              accountingImpact: recommendedScenario.expectedGLImpact,
-              navImpact: recommendedScenario.expectedNAVImpact,
-              recommendedAction: recommendedScenario.aiCopilotExplanation,
-              relatedEntries: recommendedScenario.affectedTables,
-            })}>AI Guide</button>
-          </div>
+function ScenarioEditableGrid({ module }: { module: ModuleId }) {
+  const store = useFundStore();
+  const r = useRecalc();
+  if (module === "pricing" || module === "holdings") {
+    return (
+      <section className="scenario-workbench">
+        <PanelTitle title="Editable Scenario Workbench" right="Prices, quantities and valuation inputs" />
+        <div className="table-wrap">
+          <table className="data-grid">
+            <thead><tr><th>Ticker</th><th>Asset</th><th>Currency</th><th>Quantity</th><th>Market Price</th><th>Current FX</th><th>Base MV</th><th>Unrealized P&L</th><th>Exposure</th></tr></thead>
+            <tbody>{r.holdings.slice(0, 8).map((h) => <tr key={h.id}>
+              <td>{h.ticker}</td><td>{h.assetType}</td><td>{h.currency}</td>
+              <td><FlashCell id={`${h.id}-quantity`}><EditableNumber value={h.quantity} onCommit={(v) => store.updateHolding(h.id, "quantity", v)} /></FlashCell></td>
+              <td><FlashCell id={`${h.id}-marketPrice`}><EditableNumber value={h.marketPrice} onCommit={(v) => store.updateHolding(h.id, "marketPrice", v)} /></FlashCell></td>
+              <td>{h.fxRate.toFixed(4)}</td><td>{fmt(h.baseMarketValue, true)}</td><td className={h.totalUnrealizedPnl >= 0 ? "text-good" : "text-bad"}>{fmt(h.totalUnrealizedPnl, true)}</td><td>{h.exposurePct.toFixed(2)}%</td>
+            </tr>)}</tbody>
+          </table>
         </div>
-      )}
-      {isLearning && activeScenario && activeScenarioImpact && (
-        <div className="active-scenario">
-          <div>
-            <span>Active Scenario</span>
-            <b>{activeScenario.scenarioName}</b>
-            <p>{activeScenario.businessContext}</p>
-          </div>
-          <div className="impact-cards">
-            <Metric label="NAV impact" value={fmt(nav?.delta ?? 0, true)} tone={(nav?.delta ?? 0) >= 0 ? "good" : "bad"} />
-            <Metric label="NAV impact %" value={`${((nav?.pctMove ?? 0) * 100).toFixed(2)}%`} tone={(nav?.delta ?? 0) >= 0 ? "good" : "bad"} />
-            <Metric label="Before NAV/share" value={activeScenarioImpact.before.navPerShare.toFixed(4)} />
-            <Metric label="After NAV/share" value={activeScenarioImpact.after.navPerShare.toFixed(4)} tone="warn" />
-            <Metric label="Open breaks" value={String(activeScenarioImpact.after.openBreaks)} tone="bad" />
-          </div>
-          <div className="learner-submit">
-            <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Explain root cause, NAV impact, failed control, GL/accounting treatment and resolution evidence..." />
-            <div>
-              <button className="terminal-button selected" onClick={() => { submitScenario(answer); setAnswer(""); }}>Submit Investigation</button>
-              <button className="terminal-button reject" onClick={resetScenario}>Reset Scenario</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </section>
-  );
+      </section>
+    );
+  }
+  if (module === "trades") {
+    return (
+      <section className="scenario-workbench">
+        <PanelTitle title="Editable Scenario Workbench" right="Trade economics and broker charges" />
+        <div className="table-wrap"><table className="data-grid"><thead><tr><th>Trade ID</th><th>Broker</th><th>Side</th><th>Ticker</th><th>Quantity</th><th>Price</th><th>Fees</th><th>Status</th><th>Net Amount</th></tr></thead><tbody>{store.trades.map((t) => <tr key={t.id}><td>{t.id}</td><td>{t.broker}</td><td>{t.side}</td><td>{t.ticker}</td><td><EditableNumber value={t.quantity} onCommit={(v) => store.updateTrade(t.id, "quantity", v)} /></td><td><EditableNumber value={t.price} onCommit={(v) => store.updateTrade(t.id, "price", v)} /></td><td><EditableNumber value={t.fees} onCommit={(v) => store.updateTrade(t.id, "fees", v)} /></td><td>{t.status}</td><td>{fmt(t.quantity * t.price + (t.side === "Buy" ? t.fees : -t.fees), true)}</td></tr>)}</tbody></table></div>
+      </section>
+    );
+  }
+  if (module === "cashRecon") {
+    return <section className="scenario-workbench"><PanelTitle title="Editable Scenario Workbench" right="Cash records and reconciliation differences" /><SimpleRows rows={store.cashRecon.map((c) => ({ Currency: c.currency, "Internal Ledger": fmt(c.internalLedgerCash, true), Custodian: fmt(c.custodianCash, true), "Prime Broker": fmt(c.primeBrokerCash, true), Difference: fmt(c.internalLedgerCash - c.custodianCash, true), Reason: c.breakReason, Status: c.status }))} /></section>;
+  }
+  if (module === "positionRecon") {
+    return <section className="scenario-workbench"><PanelTitle title="Editable Scenario Workbench" right="Position records and settlement breaks" /><SimpleRows rows={store.positionRecon.map((p) => ({ Ticker: p.ticker, Internal: num(p.internalPosition), Custodian: num(p.custodianPosition), PB: num(p.pbPosition), Difference: num(p.internalPosition - p.custodianPosition), Settlement: p.settlementStatus, Reason: p.breakReason, Status: p.status }))} /></section>;
+  }
+  if (module === "gl") {
+    return <section className="scenario-workbench"><PanelTitle title="Editable Scenario Workbench" right="GL postings and trial balance impact" /><GLView /></section>;
+  }
+  if (module === "capital" || module === "subsReds") {
+    return <section className="scenario-workbench"><PanelTitle title="Editable Scenario Workbench" right="Investor capital and share activity" /><InvestorView /></section>;
+  }
+  if (module === "corporateActions") {
+    return <section className="scenario-workbench"><PanelTitle title="Editable Scenario Workbench" right="Income and corporate action processing" /><CorporateActionsView /></section>;
+  }
+  if (module === "risk" || module === "stress" || module === "scenario") {
+    return <section className="scenario-workbench"><PanelTitle title="Editable Scenario Workbench" right="Risk shock inputs" /><DerivativesView /></section>;
+  }
+  return <section className="scenario-workbench"><PanelTitle title="Editable Scenario Workbench" right="NAV package impact" /><Statements kind="nav" /></section>;
 }
 
 function ScenarioLabView() {
   const [moduleFilter, setModuleFilter] = useState<ModuleId | "All">("All");
   const [difficulty, setDifficulty] = useState<ScenarioDifficulty | "All">("All");
-  const trainingMode = useFundStore((s) => s.trainingMode);
+  const store = useFundStore();
   const filtered = useMemo(() => scenarioCatalog.filter((scenario) => {
     const moduleOk = moduleFilter === "All" || scenario.module === moduleFilter;
     const difficultyOk = difficulty === "All" || scenario.difficulty === difficulty;
@@ -1018,17 +999,13 @@ function ScenarioLabView() {
   const difficulties: Array<ScenarioDifficulty | "All"> = ["All", "Beginner", "Intermediate", "Advanced", "Real World Ops", "NAV Oversight", "Crisis Simulation"];
   const scenarioModules = Array.from(new Set(scenarioCatalog.map((scenario) => scenario.module)));
   const selected = filtered.find((scenario) => scenario.id === selectedId) ?? filtered[0] ?? scenarioCatalog[0];
-  if (trainingMode === "Operations Mode") {
-    return (
-      <section className="panel full scenario-lab">
-        <PanelTitle title="Scenario Lab" right="Hidden in Operations Mode" />
-        <div className="empty-state">Practice scenarios are available only in Learning Mode. Switch the top training toggle to Learning Mode when you want guided NAV operations practice.</div>
-      </section>
-    );
-  }
+  const activeScenario = scenarioCatalog.find((scenario) => scenario.id === store.activeScenarioId);
+  const workbenchModule = activeScenario?.module ?? selected.module;
+  const nav = store.activeScenarioImpact ? impactDelta(store.activeScenarioImpact.before.nav, store.activeScenarioImpact.after.nav) : null;
   return (
     <section className="panel full scenario-lab">
-      <PanelTitle title="Scenario Lab" right="Select one case and investigate" />
+      <PanelTitle title="Scenario Simulation" right="Select, inject, edit, and trace NAV impact" />
+      <ManualEditModeBar />
       <div className="scenario-filters">
         <select className="terminal-select" value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value as ModuleId | "All")}>
           <option>All</option>
@@ -1042,8 +1019,25 @@ function ScenarioLabView() {
         <div className="scenario-list">
           {filtered.map((scenario) => <button key={scenario.id} className={selected.id === scenario.id ? "selected" : ""} onClick={() => setSelectedId(scenario.id)}><b>{scenario.scenarioName}</b><span>{scenario.module} · {scenario.difficulty}</span></button>)}
         </div>
-        <ScenarioCard scenario={selected} />
+        <div className="scenario-detail">
+          <ScenarioCard scenario={selected} />
+          {activeScenario && <div className="scenario-active-summary">
+            <span>Active Investigation</span>
+            <b>{activeScenario.scenarioName}</b>
+            <p>{activeScenario.businessContext}</p>
+            <div className="impact-cards">
+              <Metric label="NAV impact" value={fmt(nav?.delta ?? 0, true)} tone={(nav?.delta ?? 0) >= 0 ? "good" : "bad"} />
+              <Metric label="NAV impact %" value={`${((nav?.pctMove ?? 0) * 100).toFixed(2)}%`} tone={(nav?.delta ?? 0) >= 0 ? "good" : "bad"} />
+              <Metric label="Materiality" value={materiality(store.activeScenarioImpact?.after.nav ?? 0, nav?.delta ?? 0).label} tone={materiality(store.activeScenarioImpact?.after.nav ?? 0, nav?.delta ?? 0).tone} />
+            </div>
+            <div className="scenario-card-actions">
+              <button className="terminal-button" onClick={() => store.setAiPanelOpen(true)}><Bot size={15} /> AI Explain Impact</button>
+              <button className="terminal-button reject" onClick={store.resetScenario}>Reset Scenario</button>
+            </div>
+          </div>}
+        </div>
       </div>
+      <ScenarioEditableGrid module={workbenchModule} />
     </section>
   );
 }
@@ -1268,7 +1262,6 @@ function ModuleContent() {
     <AnimatePresence mode="wait">
       <motion.main key={active} className="content" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.16 }}>
         <DependencyStrip />
-        <PracticeScenariosPanel active={active} />
         {active === "dashboard" && <Dashboard />}
         {active === "aiCopilot" && <AICopilotWorkspace />}
         {active === "fund" && <FundMasterSetup />}

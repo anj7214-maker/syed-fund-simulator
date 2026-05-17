@@ -153,13 +153,18 @@ function EditableText({ value, onCommit }: { value: string; onCommit: (value: st
 
 function ManualSubmitBar({ label, fields }: { label: string; fields: string }) {
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
+  const submitManualUpdates = useFundStore((s) => s.submitManualUpdates);
+  const handleSubmit = () => {
+    submitManualUpdates(label, fields);
+    setSubmittedAt(new Date().toLocaleTimeString());
+  };
   return (
     <div className="manual-submit">
       <div>
         <b>{label}</b>
         <span>Editable fields: {fields}</span>
       </div>
-      <button className="terminal-button" onClick={() => setSubmittedAt(new Date().toLocaleTimeString())}>
+      <button className="terminal-button" onClick={handleSubmit}>
         <BookOpenCheck size={15} /> Submit Manual Updates
       </button>
       {submittedAt && <small>Submitted {submittedAt}</small>}
@@ -889,7 +894,7 @@ function impactDelta(before = 0, after = 0) {
 }
 
 function ManualEditModeBar() {
-  const { manualEditMode, toggleManualEditMode, activeScenarioImpact, trainingMode } = useFundStore();
+  const { manualEditMode, toggleManualEditMode, activeScenarioImpact, trainingMode, submitManualUpdates } = useFundStore();
   const nav = activeScenarioImpact ? impactDelta(activeScenarioImpact.before.nav, activeScenarioImpact.after.nav) : null;
   return (
     <div className="edit-mode-bar">
@@ -900,6 +905,9 @@ function ManualEditModeBar() {
       {nav && <div className="impact-mini"><span>NAV Impact</span><b className={nav.delta >= 0 ? "text-good" : "text-bad"}>{fmt(nav.delta, true)} / {(nav.pctMove * 100).toFixed(2)}%</b></div>}
       <button className={`terminal-button ${manualEditMode ? "selected" : ""}`} onClick={toggleManualEditMode}>
         <SlidersHorizontal size={15} /> {manualEditMode ? "Manual Input On" : "Allow Manual Input"}
+      </button>
+      <button className="terminal-button selected" onClick={() => submitManualUpdates("Sandbox intervention", "Scenario workbench inputs")}>
+        <BookOpenCheck size={15} /> Submit Impact
       </button>
     </div>
   );

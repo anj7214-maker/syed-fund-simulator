@@ -151,14 +151,15 @@ export function recalculate(params: {
   const investorCapital = params.investors.reduce((sum, i) => sum + i.capital, 0);
   const subscriptions = params.activities.filter((a) => a.type === "Subscription" && a.status === "Approved").reduce((sum, a) => sum + a.amount, 0);
   const redemptions = params.activities.filter((a) => a.type === "Redemption" && a.status !== "Rejected").reduce((sum, a) => sum + a.amount, 0);
+  const netInvestorCash = investorCapital + subscriptions - redemptions;
   const adminExpenses = 185000;
-  const averageNav = investorCapital + subscriptions - redemptions + unrealizedGains * 0.5;
+  const averageNav = netInvestorCash + unrealizedGains * 0.5;
   const managementFee = round((averageNav * params.managementFeePct) / 365);
   const hwmBase = params.investors.reduce((sum, i) => sum + i.hwm * i.shares, 0);
-  const performanceProfit = Math.max(0, portfolioMv + derivativeMtm + subscriptions - redemptions - hwmBase);
+  const performanceProfit = Math.max(0, portfolioMv + derivativeMtm + netInvestorCash - hwmBase);
   const performanceFee = round(performanceProfit * params.performanceFeePct);
   const liabilities = round(managementFee + performanceFee + adminExpenses + Math.max(-derivativeMtm, 0));
-  const grossAssets = round(Math.max(portfolioMv, 0) + Math.max(derivativeMtm, 0) + derivativeCollateral + dividendIncome + interestIncome);
+  const grossAssets = round(Math.max(portfolioMv, 0) + Math.max(derivativeMtm, 0) + derivativeCollateral + dividendIncome + interestIncome + Math.max(netInvestorCash, 0));
   const netAssets = round(grossAssets - liabilities);
   const sharesOutstanding = params.investors.reduce((sum, i) => sum + i.shares, 0);
   const navPerShare = sharesOutstanding ? round(netAssets / sharesOutstanding, 4) : 0;
@@ -220,6 +221,7 @@ export function recalculate(params: {
     ],
     balanceSheet: [
       { section: "Assets", line: "Investments at fair value", amount: round(Math.max(portfolioMv, 0)) },
+      { section: "Assets", line: "Investor capital cash", amount: round(Math.max(netInvestorCash, 0)) },
       { section: "Assets", line: "Derivative receivable and collateral", amount: round(Math.max(derivativeMtm, 0) + derivativeCollateral) },
       { section: "Assets", line: "Income receivable", amount: round(dividendIncome + interestIncome) },
       { section: "Liabilities", line: "Fee accruals and expenses payable", amount: round(liabilities) },

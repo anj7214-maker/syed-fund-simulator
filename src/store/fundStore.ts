@@ -42,6 +42,7 @@ export interface FundState {
   copilotContext: CopilotContext | null;
   activeScenarioId: string | null;
   activeScenarioImpact: { before: ImpactSnapshot; after: ImpactSnapshot } | null;
+  manualBaseline: ImpactSnapshot | null;
   scenarioRuns: ScenarioRun[];
   learnerScore: number;
   trades: Trade[];
@@ -72,6 +73,7 @@ export interface FundState {
   setAiPanelOpen: (open: boolean) => void;
   explainContext: (context: CopilotContext) => void;
   setFee: (kind: "management" | "performance", value: number) => void;
+  submitManualUpdates: (label: string, fields: string) => void;
   applyScenario: (scenario: string) => void;
   submitScenario: (learnerResponse: string) => void;
   resetScenario: () => void;
@@ -112,6 +114,7 @@ export const useFundStore = create<FundState>()(
       copilotContext: null,
       activeScenarioId: null,
       activeScenarioImpact: null,
+      manualBaseline: null,
       scenarioRuns: [],
       learnerScore: 0,
       trades: sampleTrades,
@@ -132,6 +135,7 @@ export const useFundStore = create<FundState>()(
         const numericFields = ["quantity", "costPrice", "marketPrice", "fxRate"] as Array<keyof Holding>;
         const nextValue = numericFields.includes(field) ? Number(value) : value;
         return {
+          manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
           holdings: s.holdings.map((h) => h.id === id ? { ...h, [field]: nextValue } : h),
           impactedModules: impacts.holding,
           flashed: { [`${id}-${String(field)}`]: Number(nextValue) >= Number(old ?? 0) ? "up" : "down" },
@@ -141,6 +145,7 @@ export const useFundStore = create<FundState>()(
       updateFx: (pair, value) => set((s) => {
         const old = s.fxRates.find((fx) => fx.pair === pair)?.rate;
         return {
+          manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
           fxRates: s.fxRates.map((fx) => fx.pair === pair ? { ...fx, priorRate: fx.rate, rate: value } : fx),
           impactedModules: impacts.fx,
           flashed: { [`fx-${pair}`]: value >= Number(old ?? 0) ? "up" : "down" },
@@ -151,6 +156,7 @@ export const useFundStore = create<FundState>()(
         const old = s.trades.find((t) => t.id === id)?.[field];
         const nextValue = ["quantity", "price", "fees"].includes(String(field)) ? Number(value) : value;
         return {
+          manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
           trades: s.trades.map((t) => t.id === id ? { ...t, [field]: nextValue } : t),
           impactedModules: impacts.trade,
           flashed: { [`${id}-${String(field)}`]: Number(nextValue) >= Number(old ?? 0) ? "up" : "down" },
@@ -160,6 +166,7 @@ export const useFundStore = create<FundState>()(
       updateInvestor: (id, field, value) => set((s) => {
         const old = s.investors.find((i) => i.id === id)?.[field];
         return {
+          manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
           investors: s.investors.map((i) => i.id === id ? { ...i, [field]: value } : i),
           impactedModules: impacts.investor,
           flashed: { [`${id}-${String(field)}`]: value >= Number(old ?? 0) ? "up" : "down" },
@@ -169,6 +176,7 @@ export const useFundStore = create<FundState>()(
       updateDerivative: (id, field, value) => set((s) => {
         const old = s.derivatives.find((d) => d.id === id)?.[field];
         return {
+          manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
           derivatives: s.derivatives.map((d) => d.id === id ? { ...d, [field]: value } : d),
           impactedModules: impacts.derivative,
           flashed: { [`${id}-${String(field)}`]: value >= Number(old ?? 0) ? "up" : "down" },
@@ -180,6 +188,7 @@ export const useFundStore = create<FundState>()(
         const numericFields = ["managementFeePct", "performanceFeePct", "hurdleRate"] as Array<keyof FundSetup>;
         const nextValue = numericFields.includes(field) ? Number(value) : value;
         return {
+          manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
           fundSetup: { ...s.fundSetup, [field]: nextValue },
           managementFeePct: field === "managementFeePct" ? Number(nextValue) : s.managementFeePct,
           performanceFeePct: field === "performanceFeePct" ? Number(nextValue) : s.performanceFeePct,
@@ -191,6 +200,7 @@ export const useFundStore = create<FundState>()(
       updateBreak: (id, field, value) => set((s) => {
         const old = s.breaks.find((b) => b.id === id)?.[field];
         return {
+          manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
           breaks: s.breaks.map((b) => b.id === id ? { ...b, [field]: field === "aging" || field === "navImpact" || field === "slaHours" ? Number(value) : value } : b),
           impactedModules: impacts.break,
           flashed: { [`${id}-${String(field)}`]: "up" },
@@ -198,6 +208,7 @@ export const useFundStore = create<FundState>()(
         };
       }),
       updateWorkflow: (status) => set((s) => ({
+        manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
         fundSetup: { ...s.fundSetup, workflowStatus: status },
         impactedModules: ["workflow", "nav", "audit", "ops"],
         flashed: { workflow: "up" },
@@ -276,11 +287,45 @@ export const useFundStore = create<FundState>()(
       setAiPanelOpen: (aiPanelOpen) => set({ aiPanelOpen }),
       explainContext: (copilotContext) => set((s) => ({ copilotContext, aiPanelOpen: true, auditTrail: [audit("AI explanation", "Context selected", copilotContext.title, ["audit", copilotContext.tab], "AI-assisted action"), ...s.auditTrail].slice(0, 100) })),
       setFee: (kind, value) => set((s) => ({
+        manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
         [kind === "management" ? "managementFeePct" : "performanceFeePct"]: value,
         impactedModules: impacts.fee,
         flashed: { [`fee-${kind}`]: "up" },
         auditTrail: [audit(`${kind} fee pct`, kind === "management" ? s.managementFeePct : s.performanceFeePct, value, impacts.fee, "Fee engine update"), ...s.auditTrail].slice(0, 100),
       })),
+      submitManualUpdates: (label, fields) => set((s) => {
+        const before = s.manualBaseline ?? createImpactSnapshot(s);
+        const after = createImpactSnapshot(s);
+        const navDelta = after.nav - before.nav;
+        const pnlDelta = after.pnl - before.pnl;
+        const cashDelta = after.cash - before.cash;
+        const investorDelta = after.investorCapital - before.investorCapital;
+        const impactedModules: ModuleId[] = s.impactedModules.length
+          ? s.impactedModules
+          : ["editableFields", "gl", "trialBalance", "pl", "balanceSheet", "nav", "capital", "audit", "ops"];
+        return {
+          activeScenarioImpact: { before, after },
+          manualBaseline: after,
+          impactedModules,
+          flashed: { ...s.flashed, "manual-submit": navDelta >= 0 ? "up" : "down", nav: navDelta >= 0 ? "up" : "down" },
+          auditTrail: [audit(
+            `Manual submit: ${label}`,
+            `NAV ${before.nav.toLocaleString("en-US")}`,
+            `NAV ${after.nav.toLocaleString("en-US")}`,
+            impactedModules,
+            "Submitted manual update",
+          ), ...s.auditTrail].slice(0, 100),
+          copilotContext: {
+            tab: s.activeModule,
+            title: `${label} submitted`,
+            summary: `${fields} were submitted through the manual update control. The recalculation engine refreshed NAV, NAV/share, GL, P&L, balance sheet, investor allocation, materiality and dependency flow.`,
+            accountingImpact: `P&L moved by ${pnlDelta.toLocaleString("en-US", { maximumFractionDigits: 2 })}; cash/capital movement is ${cashDelta.toLocaleString("en-US", { maximumFractionDigits: 2 })}; investor capital movement is ${investorDelta.toLocaleString("en-US", { maximumFractionDigits: 2 })}.`,
+            navImpact: `NAV moved from ${before.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })} to ${after.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })}, a delta of ${navDelta.toLocaleString("en-US", { maximumFractionDigits: 2 })}.`,
+            recommendedAction: "Review Impact Summary, dependency flow, materiality status and maker-checker approval before NAV release.",
+            relatedEntries: impactedModules.map((module) => module),
+          },
+        };
+      }),
       applyScenario: (scenario) => set((s) => {
         const definition = scenarioCatalog.find((item) => item.id === scenario || item.scenarioName === scenario)
           ?? scenarioCatalog.find((item) => item.scenarioName.toLowerCase().includes(scenario.toLowerCase()))
@@ -306,6 +351,7 @@ export const useFundStore = create<FundState>()(
           ...effect,
           activeScenarioId: definition.id,
           activeScenarioImpact: { before, after },
+          manualBaseline: null,
           scenarioRuns: [run, ...s.scenarioRuns].slice(0, 40),
           impactedModules: ["stress", "scenario", "holdings", "fx", "otc", "gl", "trialBalance", "pl", "balanceSheet", "nav", "exceptions", "risk", "audit"],
           flashed: { scenario: "down" },
@@ -366,6 +412,7 @@ export const useFundStore = create<FundState>()(
         derivatives: sampleDerivatives,
         activeScenarioId: null,
         activeScenarioImpact: null,
+        manualBaseline: null,
         impactedModules: ["scenario", "dashboard", "nav", "audit"],
         flashed: { scenario: "up" },
         scenarioRuns: s.scenarioRuns.map((run) => run.status === "Active" ? { ...run, status: "Reset", completedAt: new Date().toISOString() } : run),
@@ -393,6 +440,8 @@ export const useFundStore = create<FundState>()(
         derivatives: sampleDerivatives,
         managementFeePct: 0.015,
         performanceFeePct: 0.2,
+        activeScenarioImpact: null,
+        manualBaseline: null,
         auditTrail: [],
         flashed: {},
         impactedModules: [],

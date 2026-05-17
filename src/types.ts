@@ -136,6 +136,9 @@ export interface BreakItem {
 
 export type UploadModule = "cashRecon" | "positionRecon" | "trades" | "security" | "pricing" | "corporateActions" | "capital";
 export type ValidationSeverity = "Info" | "Warning" | "Critical";
+export type ScenarioDifficulty = "Beginner" | "Intermediate" | "Advanced" | "Real World Ops" | "NAV Oversight" | "Interview Mode" | "Crisis Simulation";
+export type ScenarioFundType = "Hedge Fund" | "Long Only Fund" | "Fund of Funds" | "ETF" | "Multi-Strategy Fund" | "Credit Fund" | "Private Equity Fund" | "Real Estate Fund";
+export type TrainingMode = "Learning Mode" | "Operations Mode" | "Interview Mode" | "Exam Mode";
 
 export interface ValidationIssue {
   id: string;
@@ -170,6 +173,61 @@ export interface CopilotContext {
   navImpact: string;
   recommendedAction: string;
   relatedEntries?: string[];
+}
+
+export interface ImpactSnapshot {
+  nav: number;
+  navPerShare: number;
+  pnl: number;
+  cash: number;
+  investorCapital: number;
+  openBreaks: number;
+  exceptions: number;
+  timestamp: string;
+}
+
+export interface ScenarioDefinition {
+  id: string;
+  scenarioName: string;
+  module: ModuleId;
+  difficulty: ScenarioDifficulty;
+  fundType: ScenarioFundType;
+  objective: string;
+  businessContext: string;
+  operationalBackground: string;
+  dataChanges: string[];
+  affectedTables: string[];
+  expectedNAVImpact: string;
+  expectedPnLImpact: string;
+  expectedGLImpact: string;
+  expectedCashImpact: string;
+  expectedInvestorImpact: string;
+  expectedReconciliationImpact: string;
+  expectedControlBreaks: string[];
+  materialityLevel: "Low" | "Medium" | "High" | "Critical";
+  learnerTask: string;
+  hints: string[];
+  aiCopilotExplanation: string;
+  expectedResolution: string;
+  passFailRules: string[];
+  scoreWeightage: number;
+  resetRules: string[];
+}
+
+export interface ScenarioRun {
+  id: string;
+  scenarioId: string;
+  scenarioName: string;
+  module: ModuleId;
+  trainingMode: TrainingMode;
+  status: "Active" | "Submitted" | "Passed" | "Needs Review" | "Reset";
+  startedAt: string;
+  completedAt?: string;
+  score: number;
+  before: ImpactSnapshot;
+  after: ImpactSnapshot;
+  learnerResponse?: string;
+  evaluationNotes: string[];
 }
 
 export interface Trade {

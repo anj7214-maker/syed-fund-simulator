@@ -122,6 +122,40 @@ h1 { margin: 2px 0 0; font-size: 20px; letter-spacing: 0; }
 .form-grid label span { color: #78909d; font-size: 11px; text-transform: uppercase; }
 .form-grid .terminal-input, .form-grid .terminal-select { width: 100%; }
 .workflow-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; padding: 10px; border: 1px solid #263940; background: #101d22; }
+.practice-panel { margin-bottom: 12px; display: grid; gap: 10px; }
+.edit-mode-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 10px; border: 1px solid #263940; background: #101d22; }
+.edit-mode-bar div:first-child { display: grid; gap: 3px; }
+.edit-mode-bar b { color: #f6fbff; font-size: 12px; text-transform: uppercase; }
+.edit-mode-bar span { color: #9fb3bd; font-size: 12px; }
+.impact-mini { min-width: 170px; border: 1px solid #20343b; background: #0d171b; padding: 7px 9px; display: grid; gap: 3px; }
+.impact-mini span { color: #78909d; font-size: 10px; text-transform: uppercase; }
+.impact-mini b { font-size: 13px; text-transform: none; }
+.training-mode-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px; border: 1px solid #20343b; background: #0d181d; }
+.training-mode-row span { color: #9fb3bd; font-size: 12px; }
+.training-mode-row b { color: #f6fbff; }
+.scenario-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.scenario-card { min-width: 0; display: grid; gap: 8px; align-content: start; border: 1px solid #263940; background: #101d22; padding: 10px; }
+.scenario-card.active { border-color: rgba(38,208,124,.65); box-shadow: inset 0 0 0 1px rgba(38,208,124,.12); }
+.scenario-card-head { display: grid; gap: 4px; }
+.scenario-card-head span { color: #47d5e7; font-size: 10px; text-transform: uppercase; }
+.scenario-card-head b { color: #f6fbff; font-size: 13px; }
+.scenario-card p { margin: 0; color: #9fb3bd; font-size: 12px; line-height: 1.4; }
+.scenario-card small { color: #b8c7ce; font-size: 11px; line-height: 1.35; }
+.scenario-meta { display: flex; gap: 5px; flex-wrap: wrap; }
+.scenario-card-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.active-scenario { display: grid; gap: 10px; border: 1px solid rgba(243,191,69,.32); background: rgba(243,191,69,.06); padding: 10px; }
+.active-scenario > div:first-child { display: grid; gap: 4px; }
+.active-scenario span { color: #f3bf45; font-size: 11px; text-transform: uppercase; }
+.active-scenario b { color: #f6fbff; }
+.active-scenario p { margin: 0; color: #b8c7ce; font-size: 12px; line-height: 1.45; }
+.impact-cards { display: grid; grid-template-columns: repeat(5, minmax(130px, 1fr)); gap: 8px; }
+.learner-submit { display: grid; gap: 8px; }
+.learner-submit textarea { min-height: 76px; width: 100%; resize: vertical; background: #0d171b; color: #f6fbff; border: 1px solid #263940; padding: 10px; outline: none; font: inherit; font-size: 12px; }
+.learner-submit textarea:focus { border-color: #47d5e7; box-shadow: 0 0 0 1px rgba(71,213,231,.22); }
+.learner-submit div { display: flex; gap: 8px; flex-wrap: wrap; }
+.scenario-lab { display: grid; gap: 12px; }
+.scenario-filters { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px; border: 1px solid #20343b; background: #0d181d; }
+.scenario-lab-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
 .ai-panel { position: sticky; top: 0; width: 430px; height: 100vh; overflow: auto; flex: none; border-left: 1px solid #263940; background: #0d171b; padding: 12px; display: grid; align-content: start; gap: 10px; }
 .ai-title { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #263940; padding-bottom: 9px; }
 .ai-title b { color: #f6fbff; }
@@ -203,4 +237,6 @@ h1 { margin: 2px 0 0; font-size: 20px; letter-spacing: 0; }
   .ai-hero { grid-template-columns: 1fr; }
   .ai-launch-actions { justify-content: flex-start; }
   .ai-context-grid { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+  .edit-mode-bar { grid-template-columns: 1fr; }
+  .impact-cards { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
 }

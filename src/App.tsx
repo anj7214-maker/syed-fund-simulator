@@ -8,7 +8,8 @@ import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useFundStore, useRecalc } from "./store/fundStore";
 import type { FundState } from "./store/fundStore";
-import { CopilotContext, ModuleId, UploadModule } from "./types";
+import { scenarioCatalog, scenariosForModule } from "./engine/scenarioEngine";
+import { CopilotContext, ModuleId, ScenarioDefinition, ScenarioDifficulty, TrainingMode, UploadModule } from "./types";
 
 const modules: Array<{ id: ModuleId; label: string; icon: typeof Activity }> = [
   { id: "dashboard", label: "Executive Dashboard", icon: Gauge },
@@ -357,9 +358,20 @@ function generateCopilotReply(question: string, args: {
   const latestUpload = store.uploads[0];
   const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
   const lastUser = [...history].reverse().find((m) => m.role === "user")?.text.toLowerCase() ?? "";
+  const activeScenario = scenarioCatalog.find((scenario) => scenario.id === store.activeScenarioId);
   const lead = mode === "Learning"
     ? `In ${label}, think of this as a fund-admin control step. `
     : `${label}: `;
+
+  if (activeScenario && (q.includes("scenario") || q.includes("practice") || q.includes("hint") || q.includes("what should") || q.includes("answer"))) {
+    const prompts = [
+      "Which NAV component moved first?",
+      "Which table or uploaded source created the issue?",
+      "Is this a timing difference or an economic break?",
+      "Which control failed and would it block NAV release?",
+    ];
+    return `${lead}For ${activeScenario.scenarioName}, start by investigating rather than jumping to the answer. Ask yourself: ${prompts.join(" ")} Expected focus: ${activeScenario.learnerTask} If you get stuck, review ${activeScenario.affectedTables.join(", ")}. Accounting angle: ${activeScenario.expectedGLImpact} Best-practice resolution: ${activeScenario.expectedResolution}`;
+  }
 
   if (q.includes("fx") || (q.includes("was it") && lastUser.includes("nav"))) {
     return `${lead}FX impact is currently ${fmt(r.fxGainLoss, true)}. The platform revalues non-USD holdings through the FX matrix, splitting unrealized movement into price P&L and FX P&L. ${topHolding ? `${topHolding.ticker} has current FX ${topHolding.fxRate.toFixed(4)} and base MV ${fmt(topHolding.baseMarketValue, true)}.` : ""} Operationally, review FX rate source, valuation cutoff, and whether the movement is realized or unrealized before NAV approval.`;
@@ -862,6 +874,137 @@ function ExportView() {
   return <section className="panel full"><PanelTitle title="Financial Statements Export" right="Excel, PDF, NAV pack and investor statements" /><div className="scenario-grid big">{["Excel NAV Pack", "PDF NAV Pack", "Investor Statement", "Trial Balance", "P&L", "Balance Sheet"].map((x) => <button className="scenario-button" key={x} onClick={() => download(`${x.replaceAll(" ", "-").toLowerCase()}.csv`, csv)}><Download size={16} />{x}</button>)}</div></section>;
 }
 
+function impactDelta(before = 0, after = 0) {
+  const delta = after - before;
+  const pctMove = before ? delta / Math.abs(before) : 0;
+  return { delta, pctMove };
+}
+
+function ManualEditModeBar() {
+  const { manualEditMode, toggleManualEditMode, activeScenarioImpact } = useFundStore();
+  const nav = activeScenarioImpact ? impactDelta(activeScenarioImpact.before.nav, activeScenarioImpact.after.nav) : null;
+  return (
+    <div className="edit-mode-bar">
+      <div>
+        <b>Manual Data Edit Mode</b>
+        <span>{manualEditMode ? "Enabled - edits recalculate NAV, GL, P&L, balance sheet, fees, breaks and audit trail." : "Disabled - use scenario controls or enable edits to practice manual amendments."}</span>
+      </div>
+      {nav && <div className="impact-mini"><span>NAV Impact</span><b className={nav.delta >= 0 ? "text-good" : "text-bad"}>{fmt(nav.delta, true)} / {(nav.pctMove * 100).toFixed(2)}%</b></div>}
+      <button className={`terminal-button ${manualEditMode ? "selected" : ""}`} onClick={toggleManualEditMode}>
+        <SlidersHorizontal size={15} /> {manualEditMode ? "Edit Data On" : "Edit Data"}
+      </button>
+    </div>
+  );
+}
+
+function ScenarioCard({ scenario, compact = false }: { scenario: ScenarioDefinition; compact?: boolean }) {
+  const { applyScenario, explainContext, activeScenarioId } = useFundStore();
+  return (
+    <div className={`scenario-card ${activeScenarioId === scenario.id ? "active" : ""}`}>
+      <div className="scenario-card-head">
+        <span>{scenario.module}</span>
+        <b>{scenario.scenarioName}</b>
+      </div>
+      <div className="scenario-meta">
+        <span className={`tag ${scenario.materialityLevel === "Critical" || scenario.materialityLevel === "High" ? "bad" : scenario.materialityLevel === "Medium" ? "warn" : "good"}`}>{scenario.difficulty}</span>
+        <span className="tag">{scenario.fundType}</span>
+        <span className={`tag ${scenario.materialityLevel === "Critical" ? "bad" : scenario.materialityLevel === "High" ? "warn" : "good"}`}>{scenario.materialityLevel}</span>
+      </div>
+      {!compact && <p>{scenario.objective}</p>}
+      <small>{scenario.learnerTask}</small>
+      <div className="scenario-card-actions">
+        <button className="terminal-button selected" onClick={() => applyScenario(scenario.id)}>Start Scenario</button>
+        <button className="terminal-button" onClick={() => explainContext({
+          tab: scenario.module,
+          title: scenario.scenarioName,
+          summary: scenario.businessContext,
+          accountingImpact: scenario.expectedGLImpact,
+          navImpact: scenario.expectedNAVImpact,
+          recommendedAction: scenario.aiCopilotExplanation,
+          relatedEntries: scenario.affectedTables,
+        })}>AI Guide</button>
+      </div>
+    </div>
+  );
+}
+
+function PracticeScenariosPanel({ active }: { active: ModuleId }) {
+  const { trainingMode, setTrainingMode, activeScenarioImpact, activeScenarioId, submitScenario, resetScenario, scenarioRuns, learnerScore } = useFundStore();
+  const moduleScenarios = scenariosForModule(active).slice(0, 4);
+  const activeScenario = scenarioCatalog.find((scenario) => scenario.id === activeScenarioId);
+  const [answer, setAnswer] = useState("");
+  if (active === "aiCopilot" || active === "exports" || active === "audit") return null;
+  const nav = activeScenarioImpact ? impactDelta(activeScenarioImpact.before.nav, activeScenarioImpact.after.nav) : null;
+  const latestRun = scenarioRuns[0];
+  const modes: TrainingMode[] = ["Learning Mode", "Operations Mode", "Interview Mode", "Exam Mode"];
+  return (
+    <section className="panel full practice-panel">
+      <PanelTitle title="Practice Scenarios" right={`${moduleScenarios.length || scenarioCatalog.length} module cases available`} />
+      <ManualEditModeBar />
+      <div className="training-mode-row">
+        {modes.map((mode) => <button key={mode} className={`terminal-button ${trainingMode === mode ? "selected" : ""}`} onClick={() => setTrainingMode(mode)}>{mode}</button>)}
+        <span>Learner score: <b>{learnerScore}</b></span>
+        {latestRun && <span>Latest: <b>{latestRun.status}</b> ({latestRun.score} pts)</span>}
+      </div>
+      {activeScenario && activeScenarioImpact && (
+        <div className="active-scenario">
+          <div>
+            <span>Active Scenario</span>
+            <b>{activeScenario.scenarioName}</b>
+            <p>{activeScenario.businessContext}</p>
+          </div>
+          <div className="impact-cards">
+            <Metric label="NAV impact" value={fmt(nav?.delta ?? 0, true)} tone={(nav?.delta ?? 0) >= 0 ? "good" : "bad"} />
+            <Metric label="NAV impact %" value={`${((nav?.pctMove ?? 0) * 100).toFixed(2)}%`} tone={(nav?.delta ?? 0) >= 0 ? "good" : "bad"} />
+            <Metric label="Before NAV/share" value={activeScenarioImpact.before.navPerShare.toFixed(4)} />
+            <Metric label="After NAV/share" value={activeScenarioImpact.after.navPerShare.toFixed(4)} tone="warn" />
+            <Metric label="Open breaks" value={String(activeScenarioImpact.after.openBreaks)} tone="bad" />
+          </div>
+          <div className="learner-submit">
+            <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Explain root cause, NAV impact, failed control, GL/accounting treatment and resolution evidence..." />
+            <div>
+              <button className="terminal-button selected" onClick={() => { submitScenario(answer); setAnswer(""); }}>Submit Investigation</button>
+              <button className="terminal-button reject" onClick={resetScenario}>Reset Scenario</button>
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="scenario-strip">
+        {(moduleScenarios.length ? moduleScenarios : scenarioCatalog.slice(0, 4)).map((scenario) => <ScenarioCard key={scenario.id} scenario={scenario} compact />)}
+      </div>
+    </section>
+  );
+}
+
+function ScenarioLabView() {
+  const [moduleFilter, setModuleFilter] = useState<ModuleId | "All">("All");
+  const [difficulty, setDifficulty] = useState<ScenarioDifficulty | "All">("All");
+  const filtered = useMemo(() => scenarioCatalog.filter((scenario) => {
+    const moduleOk = moduleFilter === "All" || scenario.module === moduleFilter;
+    const difficultyOk = difficulty === "All" || scenario.difficulty === difficulty;
+    return moduleOk && difficultyOk;
+  }), [moduleFilter, difficulty]);
+  const difficulties: Array<ScenarioDifficulty | "All"> = ["All", "Beginner", "Intermediate", "Advanced", "Real World Ops", "NAV Oversight", "Interview Mode", "Crisis Simulation"];
+  const scenarioModules = Array.from(new Set(scenarioCatalog.map((scenario) => scenario.module)));
+  return (
+    <section className="panel full scenario-lab">
+      <PanelTitle title="Scenario Lab" right={`${filtered.length} institutional practice cases`} />
+      <div className="scenario-filters">
+        <select className="terminal-select" value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value as ModuleId | "All")}>
+          <option>All</option>
+          {scenarioModules.map((module) => <option key={module}>{module}</option>)}
+        </select>
+        <select className="terminal-select" value={difficulty} onChange={(e) => setDifficulty(e.target.value as ScenarioDifficulty | "All")}>
+          {difficulties.map((level) => <option key={level}>{level}</option>)}
+        </select>
+      </div>
+      <div className="scenario-lab-grid">
+        {filtered.map((scenario) => <ScenarioCard key={scenario.id} scenario={scenario} />)}
+      </div>
+    </section>
+  );
+}
+
 function CopilotChatSurface({ compact = false }: { compact?: boolean }) {
   const { copilotContext, activeModule, learningMode } = useFundStore();
   const store = useFundStore();
@@ -1031,6 +1174,7 @@ function ModuleContent() {
     <AnimatePresence mode="wait">
       <motion.main key={active} className="content" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.16 }}>
         <DependencyStrip />
+        <PracticeScenariosPanel active={active} />
         {active === "dashboard" && <Dashboard />}
         {active === "aiCopilot" && <AICopilotWorkspace />}
         {active === "fund" && <FundMasterSetup />}
@@ -1057,7 +1201,8 @@ function ModuleContent() {
         {active === "cashRecon" && <><FileUploadPanel module="cashRecon" title="Cash Reconciliation Upload" /><CashReconciliationView /></>}
         {active === "positionRecon" && <><FileUploadPanel module="positionRecon" title="Position Reconciliation Upload" /><PositionReconciliationView /></>}
         {active === "workflow" && <WorkflowQueue />}
-        {["risk", "stress", "scenario", "ops"].includes(active) && <ReconRiskOps type={active} />}
+        {active === "scenario" && <ScenarioLabView />}
+        {["risk", "stress", "ops"].includes(active) && <ReconRiskOps type={active} />}
         {active === "exports" && <ExportView />}
       </motion.main>
     </AnimatePresence>

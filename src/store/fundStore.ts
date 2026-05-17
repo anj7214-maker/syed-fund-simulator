@@ -3,7 +3,8 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import { get, set } from "idb-keyval";
 import { sampleAccruals, sampleActivities, sampleBreaks, sampleCashRecon, sampleCorporateActions, sampleDerivatives, sampleFundSetup, sampleFx, sampleHoldings, sampleInvestors, samplePositionRecon, sampleSecurityMaster, sampleTrades, sampleUploads } from "../data/sampleData";
 import { recalculate } from "../engine/recalc";
-import { AuditEvent, BreakItem, CapitalActivity, CashReconRow, CopilotContext, CorporateAction, Derivative, FundSetup, FxRate, Holding, Investor, ModuleId, PositionReconRow, SecurityMaster, Trade, UploadBatch, UploadModule, ValidationIssue } from "../types";
+import { applyScenarioEffect, createImpactSnapshot, scenarioCatalog } from "../engine/scenarioEngine";
+import { AuditEvent, BreakItem, CapitalActivity, CashReconRow, CopilotContext, CorporateAction, Derivative, FundSetup, FxRate, Holding, ImpactSnapshot, Investor, ModuleId, PositionReconRow, ScenarioRun, SecurityMaster, Trade, TrainingMode, UploadBatch, UploadModule, ValidationIssue } from "../types";
 
 const idbStorage = {
   getItem: async (name: string) => (await get(name)) ?? null,
@@ -35,8 +36,14 @@ export interface FundState {
   breaks: BreakItem[];
   uploads: UploadBatch[];
   learningMode: boolean;
+  trainingMode: TrainingMode;
+  manualEditMode: boolean;
   aiPanelOpen: boolean;
   copilotContext: CopilotContext | null;
+  activeScenarioId: string | null;
+  activeScenarioImpact: { before: ImpactSnapshot; after: ImpactSnapshot } | null;
+  scenarioRuns: ScenarioRun[];
+  learnerScore: number;
   trades: Trade[];
   fxRates: FxRate[];
   investors: Investor[];
@@ -60,10 +67,14 @@ export interface FundState {
   updateWorkflow: (status: FundSetup["workflowStatus"]) => void;
   processUpload: (module: UploadModule, sourceType: string, file: { name: string; text: string }) => void;
   toggleLearningMode: () => void;
+  setTrainingMode: (mode: TrainingMode) => void;
+  toggleManualEditMode: () => void;
   setAiPanelOpen: (open: boolean) => void;
   explainContext: (context: CopilotContext) => void;
   setFee: (kind: "management" | "performance", value: number) => void;
   applyScenario: (scenario: string) => void;
+  submitScenario: (learnerResponse: string) => void;
+  resetScenario: () => void;
   setFundMode: (mode: string) => void;
   reset: () => void;
 }
@@ -95,8 +106,14 @@ export const useFundStore = create<FundState>()(
       breaks: sampleBreaks,
       uploads: sampleUploads,
       learningMode: false,
+      trainingMode: "Learning Mode",
+      manualEditMode: true,
       aiPanelOpen: true,
       copilotContext: null,
+      activeScenarioId: null,
+      activeScenarioImpact: null,
+      scenarioRuns: [],
+      learnerScore: 0,
       trades: sampleTrades,
       fxRates: sampleFx,
       investors: sampleInvestors,
@@ -246,6 +263,16 @@ export const useFundStore = create<FundState>()(
         };
       }),
       toggleLearningMode: () => set((s) => ({ learningMode: !s.learningMode, aiPanelOpen: true })),
+      setTrainingMode: (trainingMode) => set((s) => ({
+        trainingMode,
+        learningMode: trainingMode === "Learning Mode" ? true : s.learningMode,
+        aiPanelOpen: true,
+        auditTrail: [audit("Training mode", s.trainingMode, trainingMode, ["scenario", "aiCopilot", "audit"], "Scenario training mode"), ...s.auditTrail].slice(0, 100),
+      })),
+      toggleManualEditMode: () => set((s) => ({
+        manualEditMode: !s.manualEditMode,
+        auditTrail: [audit("Manual data edit mode", s.manualEditMode ? "Enabled" : "Disabled", !s.manualEditMode ? "Enabled" : "Disabled", ["editableFields", "audit"], "Manual data control"), ...s.auditTrail].slice(0, 100),
+      })),
       setAiPanelOpen: (aiPanelOpen) => set({ aiPanelOpen }),
       explainContext: (copilotContext) => set((s) => ({ copilotContext, aiPanelOpen: true, auditTrail: [audit("AI explanation", "Context selected", copilotContext.title, ["audit", copilotContext.tab], "AI-assisted action"), ...s.auditTrail].slice(0, 100) })),
       setFee: (kind, value) => set((s) => ({
@@ -255,25 +282,95 @@ export const useFundStore = create<FundState>()(
         auditTrail: [audit(`${kind} fee pct`, kind === "management" ? s.managementFeePct : s.performanceFeePct, value, impacts.fee, "Fee engine update"), ...s.auditTrail].slice(0, 100),
       })),
       applyScenario: (scenario) => set((s) => {
-        let holdings = s.holdings;
-        let fxRates = s.fxRates;
-        let derivatives = s.derivatives;
-        let activities = s.activities;
-        if (scenario === "Market Crash") holdings = holdings.map((h) => ({ ...h, priorPrice: h.marketPrice, marketPrice: h.assetType === "Option" ? h.marketPrice * 1.45 : h.marketPrice * 0.88 }));
-        if (scenario === "FX Shock") fxRates = fxRates.map((fx) => ({ ...fx, priorRate: fx.rate, rate: fx.base === "JPY" || fx.base === "INR" ? fx.rate * 0.94 : fx.rate * 1.06 }));
-        if (scenario === "Redemption Run") activities = [...activities, { id: crypto.randomUUID(), investorId: "i2", date: "2026-05-09", type: "Redemption", amount: 7500000, status: "Pending" }];
-        if (scenario === "Rate Hike") derivatives = derivatives.map((d) => ({ ...d, mtm: d.type === "IRS" ? d.mtm - 1250000 : d.mtm - 120000 }));
-        if (scenario === "Counterparty Default") derivatives = derivatives.map((d) => d.counterparty === "Barclays" ? { ...d, collateral: d.collateral * 0.35, mtm: d.mtm - 900000 } : d);
+        const definition = scenarioCatalog.find((item) => item.id === scenario || item.scenarioName === scenario)
+          ?? scenarioCatalog.find((item) => item.scenarioName.toLowerCase().includes(scenario.toLowerCase()))
+          ?? scenarioCatalog[0];
+        const before = createImpactSnapshot(s);
+        const effect = applyScenarioEffect(s, definition);
+        const nextState = { ...s, ...effect };
+        const after = createImpactSnapshot(nextState);
+        const run: ScenarioRun = {
+          id: `RUN-${Math.floor(1000 + Math.random() * 9000)}`,
+          scenarioId: definition.id,
+          scenarioName: definition.scenarioName,
+          module: definition.module,
+          trainingMode: s.trainingMode,
+          status: "Active",
+          startedAt: new Date().toISOString(),
+          score: 0,
+          before,
+          after,
+          evaluationNotes: ["Scenario started. Investigate source change, failed control, NAV impact and expected resolution."],
+        };
         return {
-          holdings,
-          fxRates,
-          derivatives,
-          activities,
+          ...effect,
+          activeScenarioId: definition.id,
+          activeScenarioImpact: { before, after },
+          scenarioRuns: [run, ...s.scenarioRuns].slice(0, 40),
           impactedModules: ["stress", "scenario", "holdings", "fx", "otc", "gl", "trialBalance", "pl", "balanceSheet", "nav", "exceptions", "risk", "audit"],
           flashed: { scenario: "down" },
-          auditTrail: [audit(`Scenario ${scenario}`, "Base case", "Applied", ["stress", "scenario", "nav", "risk", "audit"], "Scenario simulation"), ...s.auditTrail].slice(0, 100),
+          auditTrail: [audit(`Scenario ${definition.scenarioName}`, "Base case", "Applied", ["stress", "scenario", "nav", "risk", "audit"], "Scenario simulation"), ...s.auditTrail].slice(0, 100),
+          copilotContext: {
+            tab: definition.module,
+            title: definition.scenarioName,
+            summary: `${definition.businessContext} Learner task: ${definition.learnerTask}`,
+            accountingImpact: definition.expectedGLImpact,
+            navImpact: `${definition.expectedNAVImpact} Before NAV ${before.nav.toLocaleString("en-US")} / after NAV ${after.nav.toLocaleString("en-US")}.`,
+            recommendedAction: definition.expectedResolution,
+            relatedEntries: definition.affectedTables,
+          },
         };
       }),
+      submitScenario: (learnerResponse) => set((s) => {
+        const active = s.scenarioRuns.find((run) => run.scenarioId === s.activeScenarioId && run.status === "Active");
+        if (!active) return {};
+        const definition = scenarioCatalog.find((item) => item.id === active.scenarioId);
+        const response = learnerResponse.toLowerCase();
+        const checks = [
+          response.includes("nav"),
+          response.includes("break") || response.includes("recon") || response.includes("exception"),
+          response.includes("gl") || response.includes("journal") || response.includes("account"),
+          response.includes("approve") || response.includes("evidence") || response.includes("control"),
+        ];
+        const score = checks.filter(Boolean).length / checks.length * (definition?.scoreWeightage ?? 20);
+        const status = score >= (definition?.scoreWeightage ?? 20) * 0.75 ? "Passed" : "Needs Review";
+        return {
+          learnerScore: Math.round(s.learnerScore + score),
+          scenarioRuns: s.scenarioRuns.map((run) => run.id === active.id ? {
+            ...run,
+            status,
+            completedAt: new Date().toISOString(),
+            score: Math.round(score),
+            learnerResponse,
+            evaluationNotes: status === "Passed"
+              ? ["Good investigation. You covered NAV/accounting controls and operational resolution."]
+              : ["Needs review. Include source table, NAV impact, failed control, GL treatment and approval evidence."],
+          } : run),
+          auditTrail: [audit(`Scenario submission ${active.scenarioName}`, "Active", status, ["scenario", "workflow", "audit"], "Scenario learner evaluation"), ...s.auditTrail].slice(0, 100),
+        };
+      }),
+      resetScenario: () => set((s) => ({
+        holdings: sampleHoldings,
+        fundSetup: sampleFundSetup,
+        securityMaster: sampleSecurityMaster,
+        corporateActions: sampleCorporateActions,
+        cashRecon: sampleCashRecon,
+        positionRecon: samplePositionRecon,
+        breaks: sampleBreaks,
+        uploads: sampleUploads,
+        trades: sampleTrades,
+        fxRates: sampleFx,
+        investors: sampleInvestors,
+        activities: sampleActivities,
+        accruals: sampleAccruals,
+        derivatives: sampleDerivatives,
+        activeScenarioId: null,
+        activeScenarioImpact: null,
+        impactedModules: ["scenario", "dashboard", "nav", "audit"],
+        flashed: { scenario: "up" },
+        scenarioRuns: s.scenarioRuns.map((run) => run.status === "Active" ? { ...run, status: "Reset", completedAt: new Date().toISOString() } : run),
+        auditTrail: [audit("Scenario reset", "Scenario case", "Base book restored", ["scenario", "dashboard", "nav", "audit"], "Scenario reset"), ...s.auditTrail].slice(0, 100),
+      })),
       setFundMode: (fundMode) => set((s) => ({
         fundMode,
         impactedModules: ["dashboard", "holdings", "risk", "scenario"],

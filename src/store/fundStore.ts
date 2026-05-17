@@ -21,6 +21,8 @@ const impacts: Record<string, ModuleId[]> = {
   fee: ["mgmtFees", "perfFees", "gl", "trialBalance", "pl", "balanceSheet", "nav", "investorReporting", "audit"],
   fund: ["fund", "mgmtFees", "perfFees", "nav", "workflow", "audit"],
   break: ["reconBreaks", "exceptions", "workflow", "ops", "audit"],
+  cashRecon: ["cashRecon", "reconBreaks", "exceptions", "nav", "audit", "ops"],
+  positionRecon: ["positionRecon", "reconBreaks", "exceptions", "holdings", "nav", "audit", "ops"],
 };
 
 export interface FundState {
@@ -63,6 +65,8 @@ export interface FundState {
   updateTrade: (id: string, field: keyof Trade, value: string | number) => void;
   updateInvestor: (id: string, field: keyof Investor, value: number) => void;
   updateDerivative: (id: string, field: keyof Derivative, value: number) => void;
+  updateCashRecon: (id: string, field: keyof CashReconRow, value: string | number) => void;
+  updatePositionRecon: (id: string, field: keyof PositionReconRow, value: string | number) => void;
   updateFundSetup: (field: keyof FundSetup, value: string | number | boolean) => void;
   updateBreak: (id: string, field: keyof BreakItem, value: string | number) => void;
   updateWorkflow: (status: FundSetup["workflowStatus"]) => void;
@@ -181,6 +185,30 @@ export const useFundStore = create<FundState>()(
           impactedModules: impacts.derivative,
           flashed: { [`${id}-${String(field)}`]: value >= Number(old ?? 0) ? "up" : "down" },
           auditTrail: [audit(`Derivative ${id}.${String(field)}`, old, value, impacts.derivative, "MTM override"), ...s.auditTrail].slice(0, 100),
+        };
+      }),
+      updateCashRecon: (id, field, value) => set((s) => {
+        const old = s.cashRecon.find((row) => row.id === id)?.[field];
+        const numericFields = ["internalLedgerCash", "custodianCash", "primeBrokerCash"] as Array<keyof CashReconRow>;
+        const nextValue = numericFields.includes(field) ? Number(value) : value;
+        return {
+          manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
+          cashRecon: s.cashRecon.map((row) => row.id === id ? { ...row, [field]: nextValue } : row),
+          impactedModules: impacts.cashRecon,
+          flashed: { [`${id}-${String(field)}`]: Number(nextValue) >= Number(old ?? 0) ? "up" : "down" },
+          auditTrail: [audit(`Cash recon ${id}.${String(field)}`, old, nextValue, impacts.cashRecon, "Cash reconciliation amendment"), ...s.auditTrail].slice(0, 100),
+        };
+      }),
+      updatePositionRecon: (id, field, value) => set((s) => {
+        const old = s.positionRecon.find((row) => row.id === id)?.[field];
+        const numericFields = ["internalPosition", "custodianPosition", "pbPosition"] as Array<keyof PositionReconRow>;
+        const nextValue = numericFields.includes(field) ? Number(value) : value;
+        return {
+          manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
+          positionRecon: s.positionRecon.map((row) => row.id === id ? { ...row, [field]: nextValue } : row),
+          impactedModules: impacts.positionRecon,
+          flashed: { [`${id}-${String(field)}`]: Number(nextValue) >= Number(old ?? 0) ? "up" : "down" },
+          auditTrail: [audit(`Position recon ${id}.${String(field)}`, old, nextValue, impacts.positionRecon, "Position reconciliation amendment"), ...s.auditTrail].slice(0, 100),
         };
       }),
       updateFundSetup: (field, value) => set((s) => {
@@ -423,31 +451,47 @@ export const useFundStore = create<FundState>()(
         impactedModules: ["dashboard", "holdings", "risk", "scenario"],
         auditTrail: [audit("Simulation mode", s.fundMode, fundMode, ["dashboard", "holdings", "risk", "scenario"], "Preset changed"), ...s.auditTrail].slice(0, 100),
       })),
-      reset: () => set({
-        holdings: sampleHoldings,
-        fundSetup: sampleFundSetup,
-        securityMaster: sampleSecurityMaster,
-        corporateActions: sampleCorporateActions,
-        cashRecon: sampleCashRecon,
-        positionRecon: samplePositionRecon,
-        breaks: sampleBreaks,
-        uploads: sampleUploads,
-        trades: sampleTrades,
-        fxRates: sampleFx,
-        investors: sampleInvestors,
-        activities: sampleActivities,
-        accruals: sampleAccruals,
-        derivatives: sampleDerivatives,
-        managementFeePct: 0.015,
-        performanceFeePct: 0.2,
-        activeScenarioImpact: null,
-        manualBaseline: null,
-        auditTrail: [],
-        flashed: {},
-        impactedModules: [],
+      reset: () => set((s) => {
+        const before = createImpactSnapshot(s);
+        const resetState = {
+          holdings: sampleHoldings,
+          fundSetup: sampleFundSetup,
+          securityMaster: sampleSecurityMaster,
+          corporateActions: sampleCorporateActions,
+          cashRecon: sampleCashRecon,
+          positionRecon: samplePositionRecon,
+          breaks: sampleBreaks,
+          uploads: sampleUploads,
+          trades: sampleTrades,
+          fxRates: sampleFx,
+          investors: sampleInvestors,
+          activities: sampleActivities,
+          accruals: sampleAccruals,
+          derivatives: sampleDerivatives,
+          managementFeePct: 0.015,
+          performanceFeePct: 0.2,
+        };
+        const after = createImpactSnapshot({ ...s, ...resetState });
+        return {
+          ...resetState,
+          activeScenarioImpact: { before, after },
+          manualBaseline: after,
+          auditTrail: [audit("Reset book", `NAV ${before.nav.toLocaleString("en-US")}`, `NAV ${after.nav.toLocaleString("en-US")}`, ["dashboard", "nav", "audit", "ops"], "Reset to expanded practice dataset")],
+          flashed: { reset: "up", nav: after.nav >= before.nav ? "up" : "down" },
+          impactedModules: ["dashboard", "holdings", "cashRecon", "positionRecon", "reconBreaks", "nav", "audit", "ops"],
+          copilotContext: {
+            tab: s.activeModule,
+            title: "Book reset to practice baseline",
+            summary: "The simulator reloaded the expanded institutional practice book and restored prior figures across holdings, trades, recon, investors, pricing, breaks and uploads.",
+            accountingImpact: "GL, trial balance, P&L, balance sheet and investor allocation have been recalculated from the reset source data.",
+            navImpact: `NAV moved from ${before.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })} to ${after.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })}.`,
+            recommendedAction: "Use the reset baseline as the control book, then amend values and submit manual updates to compare impact.",
+            relatedEntries: ["Reset book", "Expanded practice data", "Impact Summary", "Audit Trail"],
+          },
+        };
       }),
     }),
-    { name: "syed-fund-simulator-v1", storage: createJSONStorage(() => idbStorage) },
+    { name: "syed-fund-simulator-v2", storage: createJSONStorage(() => idbStorage) },
   ),
 );
 

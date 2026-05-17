@@ -946,15 +946,17 @@ function PracticeScenariosPanel({ active }: { active: ModuleId }) {
   const nav = activeScenarioImpact ? impactDelta(activeScenarioImpact.before.nav, activeScenarioImpact.after.nav) : null;
   const latestRun = scenarioRuns[0];
   const modes: TrainingMode[] = ["Learning Mode", "Operations Mode"];
+  const isLearning = trainingMode === "Learning Mode";
   return (
     <section className="panel full practice-panel">
-      <PanelTitle title="Practice Scenario" right="One operational case at a time" />
+      <PanelTitle title={isLearning ? "Practice Scenario" : "Operations Mode"} right={isLearning ? "One operational case at a time" : "Scenario training hidden"} />
       <ManualEditModeBar />
       <div className="training-mode-row">
         {modes.map((mode) => <button key={mode} className={`terminal-button ${trainingMode === mode ? "selected" : ""}`} onClick={() => setTrainingMode(mode)}>{mode}</button>)}
-        {latestRun && <span>Workflow status: <b>{latestRun.status}</b></span>}
+        {isLearning && latestRun && <span>Workflow status: <b>{latestRun.status}</b></span>}
+        {!isLearning && <span>Live operations view: <b>scenarios hidden</b></span>}
       </div>
-      {!activeScenario && recommendedScenario && (
+      {isLearning && !activeScenario && recommendedScenario && (
         <div className="single-scenario">
           <div>
             <span>{recommendedScenario.difficulty} · {recommendedScenario.materialityLevel}</span>
@@ -976,7 +978,7 @@ function PracticeScenariosPanel({ active }: { active: ModuleId }) {
           </div>
         </div>
       )}
-      {activeScenario && activeScenarioImpact && (
+      {isLearning && activeScenario && activeScenarioImpact && (
         <div className="active-scenario">
           <div>
             <span>Active Scenario</span>
@@ -1006,6 +1008,7 @@ function PracticeScenariosPanel({ active }: { active: ModuleId }) {
 function ScenarioLabView() {
   const [moduleFilter, setModuleFilter] = useState<ModuleId | "All">("All");
   const [difficulty, setDifficulty] = useState<ScenarioDifficulty | "All">("All");
+  const trainingMode = useFundStore((s) => s.trainingMode);
   const filtered = useMemo(() => scenarioCatalog.filter((scenario) => {
     const moduleOk = moduleFilter === "All" || scenario.module === moduleFilter;
     const difficultyOk = difficulty === "All" || scenario.difficulty === difficulty;
@@ -1015,6 +1018,14 @@ function ScenarioLabView() {
   const difficulties: Array<ScenarioDifficulty | "All"> = ["All", "Beginner", "Intermediate", "Advanced", "Real World Ops", "NAV Oversight", "Crisis Simulation"];
   const scenarioModules = Array.from(new Set(scenarioCatalog.map((scenario) => scenario.module)));
   const selected = filtered.find((scenario) => scenario.id === selectedId) ?? filtered[0] ?? scenarioCatalog[0];
+  if (trainingMode === "Operations Mode") {
+    return (
+      <section className="panel full scenario-lab">
+        <PanelTitle title="Scenario Lab" right="Hidden in Operations Mode" />
+        <div className="empty-state">Practice scenarios are available only in Learning Mode. Switch the top training toggle to Learning Mode when you want guided NAV operations practice.</div>
+      </section>
+    );
+  }
   return (
     <section className="panel full scenario-lab">
       <PanelTitle title="Scenario Lab" right="Select one case and investigate" />

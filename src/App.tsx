@@ -71,6 +71,13 @@ const fmt = (n: number, compact = false) => compact ? compactMoney(n) : Intl.Num
 }).format(n);
 const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
 const num = (n: number) => Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(n);
+const openBreakCount = (store: FundState) => store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status)).length;
+const materiality = (nav: number, impact = 0) => {
+  const ratio = nav ? Math.abs(impact) / Math.abs(nav) : 0;
+  if (ratio >= 0.005) return { label: "Critical", tone: "bad" as const, ratio };
+  if (ratio >= 0.001) return { label: "Medium", tone: "warn" as const, ratio };
+  return { label: "Minor", tone: "good" as const, ratio };
+};
 
 const editableMatrix = [
   { module: "Portfolio Holdings", fields: "Quantity, Cost Price, Market Price", impact: "Holdings, unrealized P&L, NAV, exposure, balance sheet, investor allocation" },
@@ -447,7 +454,7 @@ function Sidebar() {
 }
 
 function Header() {
-  const { fundMode, setFundMode, reset, learningMode, toggleLearningMode, setAiPanelOpen } = useFundStore();
+  const { fundMode, setFundMode, reset, learningMode, toggleLearningMode, setAiPanelOpen, activeScenarioImpact, breaks } = useFundStore();
   const r = useRecalc();
   const active = useFundStore((s) => s.activeModule);
   const label = modules.find((m) => m.id === active)?.label;
@@ -456,6 +463,8 @@ function Header() {
     queryFn: async () => ({ at: new Date().toLocaleTimeString(), batch: Math.floor(88 + Math.random() * 9) }),
     refetchInterval: 5000,
   });
+  const scenarioImpact = activeScenarioImpact ? impactDelta(activeScenarioImpact.before.nav, activeScenarioImpact.after.nav).delta : 0;
+  const mat = materiality(r.netAssets, scenarioImpact || breaks.reduce((sum, b) => sum + (!["Approved", "Closed"].includes(b.status) ? b.navImpact : 0), 0));
   return (
     <header className="topbar">
       <div>
@@ -468,7 +477,10 @@ function Header() {
         </select>
         <div className="status-pill good">NAV {fmt(r.netAssets, true)}</div>
         <div className="status-pill">NAV/share {r.navPerShare.toFixed(4)}</div>
-        <button className={`terminal-button ${learningMode ? "selected" : ""}`} onClick={toggleLearningMode}><Brain size={15} /> Learning Mode</button>
+        <div className="status-pill bad">Open breaks {openBreakCount(useFundStore.getState())}</div>
+        <div className={`status-pill ${mat.tone}`}>Materiality {mat.label}</div>
+        <div className="status-pill">Updated {pulse.data?.at ?? "live"}</div>
+        <button className={`terminal-button ${learningMode ? "selected" : ""}`} onClick={toggleLearningMode}><Brain size={15} /> {learningMode ? "Learning" : "Operations"}</button>
         <button className="terminal-button" onClick={() => setAiPanelOpen(true)}><Bot size={15} /> AI Copilot</button>
         <button className="terminal-button" onClick={reset}><RefreshCw size={15} /> Reset book</button>
         <UserButton afterSignOutUrl="/" />
@@ -550,12 +562,8 @@ function Dashboard() {
         </ResponsiveContainer>
       </section>
       <section className="panel">
-        <PanelTitle title="Simulation Controls" right={store.fundMode} />
-        <div className="scenario-grid">
-          {["Market Crash", "FX Shock", "Redemption Run", "Rate Hike", "Counterparty Default"].map((s) => (
-            <button key={s} className="scenario-button" onClick={() => store.applyScenario(s)}>{s}</button>
-          ))}
-        </div>
+        <PanelTitle title="Practice Scenario" right={store.fundMode} />
+        <ScenarioCard scenario={scenariosForModule("risk")[0] ?? scenarioCatalog[0]} compact />
       </section>
       <ExceptionPanel />
     </div>
@@ -855,7 +863,7 @@ function ReconRiskOps({ type }: { type: ModuleId }) {
   const r = useRecalc();
   const store = useFundStore();
   if (type === "risk") return <section className="panel full"><PanelTitle title="Risk & Exposure" right="Live exposure cube" /><ResponsiveContainer width="100%" height={320}><BarChart data={r.exposures}><CartesianGrid stroke="#20343b" /><XAxis dataKey="name" stroke="#78909d" /><YAxis stroke="#78909d" tickFormatter={(v) => fmt(Number(v), true)} /><Tooltip formatter={(v) => fmt(Number(v), true)} contentStyle={{ background: "#101b20", border: "1px solid #263940" }} /><Bar dataKey="value" fill="#47d5e7" /></BarChart></ResponsiveContainer></section>;
-  if (type === "stress" || type === "scenario") return <section className="panel full"><PanelTitle title={type === "stress" ? "Stress Testing" : "Scenario Simulation"} right="Applies shocks across pricing, FX, derivatives and capital" /><div className="scenario-grid big">{["Market Crash", "FX Shock", "Redemption Run", "Rate Hike", "Counterparty Default"].map((s) => <button className="scenario-button" key={s} onClick={() => store.applyScenario(s)}>{s}</button>)}</div></section>;
+  if (type === "stress" || type === "scenario") return <section className="panel full"><PanelTitle title={type === "stress" ? "Stress Testing" : "Scenario Simulation"} right="Focused operational scenario" /><ScenarioCard scenario={scenariosForModule("risk")[0] ?? scenarioCatalog[0]} /></section>;
   if (type === "ops") return <section className="panel full"><PanelTitle title="Operations Control Dashboard" right="Workflow, breaks, valuation and sign-off status" /><section className="metrics-row"><Metric label="NAV status" value="Draft T+0" tone="warn" /><Metric label="GL status" value={Math.abs(r.trialBalance.reduce((s, x) => s + x.debit - x.credit, 0)) < 1 ? "Balanced" : "Break"} tone="good" /><Metric label="Open breaks" value={String(r.exceptions.length)} tone="bad" /><Metric label="Approval queue" value="7 items" /></section><ExceptionPanel /></section>;
   return <section className="panel full"><PanelTitle title={modules.find((m) => m.id === type)?.label ?? "Module"} right="Institutional operating worksheet" /><SimpleRows rows={r.exceptions.map((e) => ({ Module: e.module, Severity: e.severity, Break: e.message, Owner: e.owner, Status: e.status }))} /></section>;
 }
@@ -929,23 +937,45 @@ function ScenarioCard({ scenario, compact = false }: { scenario: ScenarioDefinit
 }
 
 function PracticeScenariosPanel({ active }: { active: ModuleId }) {
-  const { trainingMode, setTrainingMode, activeScenarioImpact, activeScenarioId, submitScenario, resetScenario, scenarioRuns, learnerScore } = useFundStore();
-  const moduleScenarios = scenariosForModule(active).slice(0, 4);
+  const { trainingMode, setTrainingMode, activeScenarioImpact, activeScenarioId, submitScenario, resetScenario, scenarioRuns, applyScenario, explainContext } = useFundStore();
+  const moduleScenarios = scenariosForModule(active);
   const activeScenario = scenarioCatalog.find((scenario) => scenario.id === activeScenarioId);
+  const recommendedScenario = activeScenario ?? moduleScenarios[0] ?? scenarioCatalog[0];
   const [answer, setAnswer] = useState("");
   if (active === "aiCopilot" || active === "exports" || active === "audit") return null;
   const nav = activeScenarioImpact ? impactDelta(activeScenarioImpact.before.nav, activeScenarioImpact.after.nav) : null;
   const latestRun = scenarioRuns[0];
-  const modes: TrainingMode[] = ["Learning Mode", "Operations Mode", "Interview Mode", "Exam Mode"];
+  const modes: TrainingMode[] = ["Learning Mode", "Operations Mode"];
   return (
     <section className="panel full practice-panel">
-      <PanelTitle title="Practice Scenarios" right={`${moduleScenarios.length || scenarioCatalog.length} module cases available`} />
+      <PanelTitle title="Practice Scenario" right="One operational case at a time" />
       <ManualEditModeBar />
       <div className="training-mode-row">
         {modes.map((mode) => <button key={mode} className={`terminal-button ${trainingMode === mode ? "selected" : ""}`} onClick={() => setTrainingMode(mode)}>{mode}</button>)}
-        <span>Learner score: <b>{learnerScore}</b></span>
-        {latestRun && <span>Latest: <b>{latestRun.status}</b> ({latestRun.score} pts)</span>}
+        {latestRun && <span>Workflow status: <b>{latestRun.status}</b></span>}
       </div>
+      {!activeScenario && recommendedScenario && (
+        <div className="single-scenario">
+          <div>
+            <span>{recommendedScenario.difficulty} · {recommendedScenario.materialityLevel}</span>
+            <b>{recommendedScenario.scenarioName}</b>
+            <p>{recommendedScenario.businessContext}</p>
+            <small>{recommendedScenario.objective}</small>
+          </div>
+          <div className="scenario-card-actions">
+            <button className="terminal-button selected" onClick={() => applyScenario(recommendedScenario.id)}>Start Investigation</button>
+            <button className="terminal-button" onClick={() => explainContext({
+              tab: recommendedScenario.module,
+              title: recommendedScenario.scenarioName,
+              summary: recommendedScenario.businessContext,
+              accountingImpact: recommendedScenario.expectedGLImpact,
+              navImpact: recommendedScenario.expectedNAVImpact,
+              recommendedAction: recommendedScenario.aiCopilotExplanation,
+              relatedEntries: recommendedScenario.affectedTables,
+            })}>AI Guide</button>
+          </div>
+        </div>
+      )}
       {activeScenario && activeScenarioImpact && (
         <div className="active-scenario">
           <div>
@@ -969,9 +999,6 @@ function PracticeScenariosPanel({ active }: { active: ModuleId }) {
           </div>
         </div>
       )}
-      <div className="scenario-strip">
-        {(moduleScenarios.length ? moduleScenarios : scenarioCatalog.slice(0, 4)).map((scenario) => <ScenarioCard key={scenario.id} scenario={scenario} compact />)}
-      </div>
     </section>
   );
 }
@@ -984,11 +1011,13 @@ function ScenarioLabView() {
     const difficultyOk = difficulty === "All" || scenario.difficulty === difficulty;
     return moduleOk && difficultyOk;
   }), [moduleFilter, difficulty]);
-  const difficulties: Array<ScenarioDifficulty | "All"> = ["All", "Beginner", "Intermediate", "Advanced", "Real World Ops", "NAV Oversight", "Interview Mode", "Crisis Simulation"];
+  const [selectedId, setSelectedId] = useState<string>(filtered[0]?.id ?? scenarioCatalog[0].id);
+  const difficulties: Array<ScenarioDifficulty | "All"> = ["All", "Beginner", "Intermediate", "Advanced", "Real World Ops", "NAV Oversight", "Crisis Simulation"];
   const scenarioModules = Array.from(new Set(scenarioCatalog.map((scenario) => scenario.module)));
+  const selected = filtered.find((scenario) => scenario.id === selectedId) ?? filtered[0] ?? scenarioCatalog[0];
   return (
     <section className="panel full scenario-lab">
-      <PanelTitle title="Scenario Lab" right={`${filtered.length} institutional practice cases`} />
+      <PanelTitle title="Scenario Lab" right="Select one case and investigate" />
       <div className="scenario-filters">
         <select className="terminal-select" value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value as ModuleId | "All")}>
           <option>All</option>
@@ -998,9 +1027,63 @@ function ScenarioLabView() {
           {difficulties.map((level) => <option key={level}>{level}</option>)}
         </select>
       </div>
-      <div className="scenario-lab-grid">
-        {filtered.map((scenario) => <ScenarioCard key={scenario.id} scenario={scenario} />)}
+      <div className="scenario-lab-clean">
+        <div className="scenario-list">
+          {filtered.map((scenario) => <button key={scenario.id} className={selected.id === scenario.id ? "selected" : ""} onClick={() => setSelectedId(scenario.id)}><b>{scenario.scenarioName}</b><span>{scenario.module} · {scenario.difficulty}</span></button>)}
+        </div>
+        <ScenarioCard scenario={selected} />
       </div>
+    </section>
+  );
+}
+
+function ImpactSummaryPanel() {
+  const store = useFundStore();
+  const r = useRecalc();
+  const activeScenario = scenarioCatalog.find((scenario) => scenario.id === store.activeScenarioId);
+  const navDelta = store.activeScenarioImpact ? impactDelta(store.activeScenarioImpact.before.nav, store.activeScenarioImpact.after.nav) : { delta: 0, pctMove: 0 };
+  const unresolvedImpact = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status)).reduce((sum, b) => sum + Math.abs(b.navImpact), 0);
+  const mat = materiality(r.netAssets, Math.abs(navDelta.delta) || unresolvedImpact);
+  const blocked = mat.label === "Critical" || store.breaks.some((b) => b.severity === "High" && !["Approved", "Closed"].includes(b.status)) || r.exceptions.some((e) => e.severity === "High" && e.status !== "Cleared");
+  const controls = activeScenario?.expectedControlBreaks ?? [
+    "Price tolerance breach",
+    "Cash/position tolerance",
+    "Missing approval",
+    "NAV movement threshold",
+  ];
+  return (
+    <section className="impact-summary">
+      <div className="impact-title"><Activity size={15} /><b>Impact Summary</b></div>
+      <div className="impact-summary-grid">
+        <div><span>NAV Impact</span><b className={navDelta.delta >= 0 ? "text-good" : "text-bad"}>{fmt(navDelta.delta, true)}</b></div>
+        <div><span>NAV Impact %</span><b>{(navDelta.pctMove * 100).toFixed(2)}%</b></div>
+        <div><span>P&L Impact</span><b>{fmt(r.pnl.reduce((sum, line) => sum + line.amount, 0), true)}</b></div>
+        <div><span>Open Breaks</span><b className={blocked ? "text-bad" : "text-good"}>{openBreakCount(store)}</b></div>
+      </div>
+      <div className={`release-banner ${blocked ? "blocked" : "clear"}`}>{blocked ? "NAV RELEASE BLOCKED" : "NAV RELEASE CLEAR"}</div>
+      <div className="impact-lines">
+        <p><span>GL Impact</span><b>{r.gl.length} journals / {r.trialBalance.length} TB accounts</b></p>
+        <p><span>Cash Impact</span><b>{fmt(store.activities.reduce((sum, a) => sum + (a.type === "Subscription" ? a.amount : -a.amount), 0), true)}</b></p>
+        <p><span>Investor Impact</span><b>{store.investors.length} capital accounts recalculated</b></p>
+        <p><span>Risk Severity</span><b>{mat.label}</b></p>
+        <p><span>Approval Status</span><b>{blocked ? "Analyst -> Reviewer -> NAV Manager" : store.fundSetup.workflowStatus}</b></p>
+      </div>
+      <div className="control-list">{controls.slice(0, 5).map((control) => <span key={control}>{control}</span>)}</div>
+    </section>
+  );
+}
+
+function OperationalBottomPanel() {
+  const store = useFundStore();
+  const r = useRecalc();
+  const latestAudit = store.auditTrail[0];
+  const highException = r.exceptions.find((e) => e.severity === "High" && e.status !== "Cleared");
+  return (
+    <section className="ops-bottom">
+      <div><span>AI Copilot</span><b>{store.aiPanelOpen ? "Open" : "Closed"}</b><small>Use AI Explain Impact for investigation prompts.</small></div>
+      <div><span>Exception Alert</span><b className={highException ? "text-bad" : "text-good"}>{highException?.message ?? "No critical alert"}</b><small>{highException?.owner ?? "NAV control clear"}</small></div>
+      <div><span>Audit Trail</span><b>{latestAudit?.action ?? "No action yet"}</b><small>{latestAudit ? new Date(latestAudit.timestamp).toLocaleTimeString() : "Awaiting edit or upload"}</small></div>
+      <div><span>Dependency Flow</span><b>{store.impactedModules.slice(0, 4).map((id) => modules.find((m) => m.id === id)?.label).filter(Boolean).join(" -> ") || "No active ripple"}</b><small>Operational ripple effect analysis</small></div>
     </section>
   );
 }
@@ -1204,6 +1287,7 @@ function ModuleContent() {
         {active === "scenario" && <ScenarioLabView />}
         {["risk", "stress", "ops"].includes(active) && <ReconRiskOps type={active} />}
         {active === "exports" && <ExportView />}
+        <OperationalBottomPanel />
       </motion.main>
     </AnimatePresence>
   );
@@ -1227,6 +1311,7 @@ function CopilotPanel() {
     <aside className="ai-panel">
       <div className="ai-title"><Bot size={18} /><b>Institutional AI Copilot</b><button onClick={() => setAiPanelOpen(false)}>x</button></div>
       <div className="ai-mode">{learningMode ? "Learning Mode enabled" : "Professional Mode"} - {label}</div>
+      <ImpactSummaryPanel />
       <CopilotChatSurface compact />
       <section><h3>{ctx.title}</h3><p>{ctx.summary}</p></section>
       <section><h4>Accounting Impact</h4><p>{ctx.accountingImpact}</p></section>

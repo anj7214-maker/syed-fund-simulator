@@ -186,7 +186,7 @@ function FileUploadPanel({ module, title }: { module: UploadModule; title: strin
   const { processUpload, uploads, explainContext } = useFundStore();
   const [sourceType, setSourceType] = useState(uploadSources[module][0]);
   const [dragging, setDragging] = useState(false);
-  const moduleUploads = uploads.filter((u) => u.module === module).slice(0, 4);
+  const moduleUploads = uploads.filter((u) => u.module === module).slice(0, 25);
   const handleFile = async (file?: File) => {
     if (!file) return;
     const text = await file.text().catch(() => `${file.name}\nXLSX metadata-only simulation`);
@@ -731,7 +731,7 @@ function AccrualsView({ kind }: { kind: "Dividend" | "Coupon" }) {
 
 function ExceptionPanel() {
   const r = useRecalc();
-  return <section className="panel"><PanelTitle title="Exception Management" right="Live controls" /><div className="exception-list">{r.exceptions.slice(0, 7).map((e) => <div key={e.id} className={`exception ${e.severity.toLowerCase()}`}><b>{e.severity}</b><span>{e.module}</span><p>{e.message}</p><small>{e.owner} · {e.status}</small></div>)}</div></section>;
+  return <section className="panel"><PanelTitle title="Exception Management" right="Live controls" /><div className="exception-list">{r.exceptions.slice(0, 25).map((e) => <div key={e.id} className={`exception ${e.severity.toLowerCase()}`}><b>{e.severity}</b><span>{e.module}</span><p>{e.message}</p><small>{e.owner} · {e.status}</small></div>)}</div></section>;
 }
 
 function AuditTrail() {
@@ -954,7 +954,7 @@ function ScenarioEditableGrid({ module }: { module: ModuleId }) {
         <div className="table-wrap">
           <table className="data-grid">
             <thead><tr><th>Ticker</th><th>Asset</th><th>Currency</th><th>Quantity</th><th>Market Price</th><th>Current FX</th><th>Base MV</th><th>Unrealized P&L</th><th>Exposure</th></tr></thead>
-            <tbody>{r.holdings.slice(0, 8).map((h) => <tr key={h.id}>
+            <tbody>{r.holdings.slice(0, 25).map((h) => <tr key={h.id}>
               <td>{h.ticker}</td><td>{h.assetType}</td><td>{h.currency}</td>
               <td><FlashCell id={`${h.id}-quantity`}><EditableNumber value={h.quantity} onCommit={(v) => store.updateHolding(h.id, "quantity", v)} /></FlashCell></td>
               <td><FlashCell id={`${h.id}-marketPrice`}><EditableNumber value={h.marketPrice} onCommit={(v) => store.updateHolding(h.id, "marketPrice", v)} /></FlashCell></td>

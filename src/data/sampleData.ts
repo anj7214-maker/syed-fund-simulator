@@ -1,4 +1,4 @@
-import { Accrual, BreakItem, CapitalActivity, CashReconRow, CorporateAction, Derivative, ExceptionItem, FundSetup, FxRate, Holding, Investor, PositionReconRow, SecurityMaster, Trade, UploadBatch } from "../types";
+import { Accrual, BreakItem, CapitalActivity, CashReconRow, CorporateAction, Currency, Derivative, ExceptionItem, FundSetup, FxRate, Holding, Investor, PositionReconRow, SecurityMaster, Trade, UploadBatch } from "../types";
 
 export const sampleHoldings: Holding[] = [
   { id: "h1", isin: "US5949181045", ticker: "MSFT", name: "Microsoft Corp", assetType: "Equity", strategy: "Long/Short Equity", currency: "USD", quantity: 52000, costPrice: 388.4, marketPrice: 421.8, fxRate: 1, counterparty: "Goldman Sachs", settlementDate: "2026-05-11", priceSource: "Bloomberg BGN", priorPrice: 417.2, lastPriceTime: "2026-05-09T15:58:00" },
@@ -150,3 +150,214 @@ export const baseExceptions: ExceptionItem[] = [
   { id: "ex2", severity: "Medium", module: "Cash Reconciliation", message: "EUR cash timing difference pending DB settlement", owner: "Treasury", status: "Open" },
   { id: "ex3", severity: "Low", module: "Pricing", message: "CBOE option surface updated 5 minutes after valuation cut", owner: "Valuations", status: "Open" }
 ];
+
+const extendedHoldings: Holding[] = [
+  { id: "h11", isin: "US88160R1014", ticker: "TSLA", name: "Tesla Inc", assetType: "Equity", strategy: "Long/Short Equity", currency: "USD", quantity: 34000, costPrice: 172.4, marketPrice: 181.9, fxRate: 1, counterparty: "Morgan Stanley", settlementDate: "2026-05-11", priceSource: "NASDAQ", priorPrice: 178.2, lastPriceTime: "2026-05-09T15:59:00" },
+  { id: "h12", isin: "US0231351067", ticker: "AMZN", name: "Amazon.com Inc", assetType: "Equity", strategy: "Event Driven", currency: "USD", quantity: 28500, costPrice: 178.6, marketPrice: 185.2, fxRate: 1, counterparty: "Goldman Sachs", settlementDate: "2026-05-11", priceSource: "Bloomberg BGN", priorPrice: 183.7, lastPriceTime: "2026-05-09T15:58:00" },
+  { id: "h13", isin: "US02079K3059", ticker: "GOOGL", name: "Alphabet Inc", assetType: "Equity", strategy: "Quality Growth", currency: "USD", quantity: 41000, costPrice: 151.8, marketPrice: 158.4, fxRate: 1, counterparty: "JP Morgan", settlementDate: "2026-05-11", priceSource: "NASDAQ", priorPrice: 157.1, lastPriceTime: "2026-05-09T15:59:00" },
+  { id: "h14", isin: "US67066G1040", ticker: "NVDA", name: "NVIDIA Corp", assetType: "Equity", strategy: "Technology Momentum", currency: "USD", quantity: 22600, costPrice: 905.2, marketPrice: 941.6, fxRate: 1, counterparty: "UBS PB", settlementDate: "2026-05-11", priceSource: "NASDAQ", priorPrice: 932.4, lastPriceTime: "2026-05-09T15:59:00" },
+  { id: "h15", isin: "US46625H1005", ticker: "JPM", name: "JPMorgan Chase", assetType: "Equity", strategy: "Financials Relative Value", currency: "USD", quantity: 63000, costPrice: 201.4, marketPrice: 207.8, fxRate: 1, counterparty: "JP Morgan", settlementDate: "2026-05-11", priceSource: "NYSE", priorPrice: 206.1, lastPriceTime: "2026-05-09T15:58:00" },
+  { id: "h16", isin: "US91282CHT18", ticker: "T 4.25 2034", name: "US Treasury 4.25% 2034", assetType: "Bond", strategy: "Rates", currency: "USD", quantity: 24000000, costPrice: 99.1, marketPrice: 100.34, fxRate: 1, counterparty: "Citibank", settlementDate: "2026-05-12", priceSource: "ICE", priorPrice: 100.12, lastPriceTime: "2026-05-09T15:25:00" },
+  { id: "h17", isin: "FR001400QMF9", ticker: "FRTR 3 2034", name: "France OAT 3% 2034", assetType: "Bond", strategy: "Rates", currency: "EUR", quantity: 14500000, costPrice: 97.9, marketPrice: 98.35, fxRate: 1.08, counterparty: "BNP Paribas", settlementDate: "2026-05-13", priceSource: "ICE", priorPrice: 98.02, lastPriceTime: "2026-05-09T15:26:00" },
+  { id: "h18", isin: "GB00BMBL1F74", ticker: "UKT 0.875 2033", name: "UK Gilt 0.875% 2033", assetType: "Bond", strategy: "Rates", currency: "GBP", quantity: 11800000, costPrice: 84.2, marketPrice: 85.65, fxRate: 1.26, counterparty: "Barclays", settlementDate: "2026-05-13", priceSource: "Tradeweb", priorPrice: 85.31, lastPriceTime: "2026-05-09T15:27:00" },
+  { id: "h19", isin: "CH0012032048", ticker: "ROG SW", name: "Roche Holding", assetType: "Equity", strategy: "Defensive Equity", currency: "CHF", quantity: 24000, costPrice: 247.3, marketPrice: 253.6, fxRate: 1.11, counterparty: "Credit Suisse", settlementDate: "2026-05-12", priceSource: "SIX", priorPrice: 252.4, lastPriceTime: "2026-05-09T15:50:00" },
+  { id: "h20", isin: "SG1M31001969", ticker: "DBS SP", name: "DBS Group Holdings", assetType: "Equity", strategy: "Asia Financials", currency: "SGD", quantity: 190000, costPrice: 42.1, marketPrice: 43.3, fxRate: 0.74, counterparty: "DBS PB", settlementDate: "2026-05-14", priceSource: "SGX", priorPrice: 42.9, lastPriceTime: "2026-05-09T07:20:00" },
+  { id: "h21", isin: "INE002A01018", ticker: "RELIANCE IN", name: "Reliance Industries", assetType: "Equity", strategy: "Emerging Markets", currency: "INR", quantity: 510000, costPrice: 2820, marketPrice: 2914, fxRate: 0.012, counterparty: "HSBC", settlementDate: "2026-05-14", priceSource: "NSE", priorPrice: 2891, lastPriceTime: "2026-05-09T07:05:00" },
+  { id: "h22", isin: "HK0000069689", ticker: "700 HK", name: "Tencent Holdings", assetType: "Equity", strategy: "Asia Technology", currency: "HKD", quantity: 160000, costPrice: 382.4, marketPrice: 397.8, fxRate: 0.128, counterparty: "HSBC", settlementDate: "2026-05-13", priceSource: "HKEX", priorPrice: 392.6, lastPriceTime: "2026-05-09T07:00:00" },
+  { id: "h23", isin: "AU000000BHP4", ticker: "BHP AU", name: "BHP Group", assetType: "Equity", strategy: "Commodities", currency: "AUD", quantity: 285000, costPrice: 42.2, marketPrice: 43.9, fxRate: 0.66, counterparty: "Macquarie", settlementDate: "2026-05-14", priceSource: "ASX", priorPrice: 43.5, lastPriceTime: "2026-05-09T06:55:00" },
+  { id: "h24", isin: "CA0641491075", ticker: "BNS CN", name: "Bank of Nova Scotia", assetType: "Equity", strategy: "Financials Relative Value", currency: "CAD", quantity: -175000, costPrice: 66.7, marketPrice: 64.9, fxRate: 0.73, counterparty: "RBC", settlementDate: "2026-05-12", priceSource: "TSX", priorPrice: 65.3, lastPriceTime: "2026-05-09T15:57:00" },
+  { id: "h25", isin: "BRPETRACNPR6", ticker: "PETR4 BZ", name: "Petrobras PN", assetType: "Equity", strategy: "Energy", currency: "BRL", quantity: 620000, costPrice: 37.2, marketPrice: 38.6, fxRate: 0.195, counterparty: "Itau", settlementDate: "2026-05-14", priceSource: "B3", priorPrice: 38.1, lastPriceTime: "2026-05-09T15:40:00" },
+  { id: "h26", isin: "MXP370711014", ticker: "WALMEX*", name: "Walmart de Mexico", assetType: "Equity", strategy: "Consumer Staples", currency: "MXN", quantity: 740000, costPrice: 61.8, marketPrice: 63.4, fxRate: 0.058, counterparty: "Santander", settlementDate: "2026-05-14", priceSource: "BMV", priorPrice: 62.7, lastPriceTime: "2026-05-09T15:38:00" },
+  { id: "h27", isin: "KR7005930003", ticker: "005930 KS", name: "Samsung Electronics", assetType: "Equity", strategy: "Asia Technology", currency: "KRW", quantity: 145000, costPrice: 72400, marketPrice: 73800, fxRate: 0.00074, counterparty: "Mirae", settlementDate: "2026-05-14", priceSource: "KRX", priorPrice: 73100, lastPriceTime: "2026-05-09T06:45:00" },
+  { id: "h28", isin: "FUT-CL-JUN26", ticker: "CLM6", name: "WTI Crude Future Jun26", assetType: "Future", strategy: "Commodities", currency: "USD", quantity: 155, costPrice: 76.2, marketPrice: 78.1, fxRate: 1000, counterparty: "NYMEX Clearing", settlementDate: "2026-06-20", priceSource: "CME", priorPrice: 77.4, lastPriceTime: "2026-05-09T15:58:00" },
+  { id: "h29", isin: "OPT-NDX-19000C", ticker: "NDX 19000C", name: "NDX Call Jul26", assetType: "Option", strategy: "Technology Momentum", currency: "USD", quantity: -210, costPrice: 620, marketPrice: 588, fxRate: 100, counterparty: "CBOE OCC", settlementDate: "2026-07-17", priceSource: "CBOE Surface", priorPrice: 601, lastPriceTime: "2026-05-09T15:53:00" },
+  { id: "h30", isin: "FXF-GBPUSD", ticker: "GBPUSD FWD", name: "GBP/USD 6M Forward", assetType: "FX Forward", strategy: "Currency Overlay", currency: "GBP", quantity: 18000000, costPrice: 1.251, marketPrice: 1.263, fxRate: 1, counterparty: "Deutsche Bank", settlementDate: "2026-11-12", priceSource: "Reuters", priorPrice: 1.258, lastPriceTime: "2026-05-09T15:52:00" },
+];
+
+sampleHoldings.push(...extendedHoldings);
+
+sampleSecurityMaster.push(...sampleHoldings.slice(4).map((h, index): SecurityMaster => ({
+  id: `sec-ext-${index + 1}`,
+  isin: h.isin,
+  bloombergTicker: `${h.ticker} ${h.currency === "USD" ? "US" : h.currency} ${h.assetType}`,
+  assetType: h.assetType,
+  description: h.name,
+  country: h.currency === "JPY" ? "Japan" : h.currency === "GBP" ? "United Kingdom" : h.currency === "EUR" ? "Eurozone" : h.currency === "INR" ? "India" : h.currency === "HKD" ? "Hong Kong" : h.currency === "AUD" ? "Australia" : h.currency === "CAD" ? "Canada" : h.currency === "BRL" ? "Brazil" : h.currency === "MXN" ? "Mexico" : h.currency === "KRW" ? "South Korea" : "United States",
+  exchange: h.assetType === "FX Forward" || h.assetType === "Swap" ? "OTC" : h.assetType === "Future" ? "Listed Derivatives" : h.assetType === "Option" ? "Options Exchange" : "Primary Exchange",
+  currency: h.currency,
+  sector: h.strategy,
+  industry: h.assetType === "Bond" ? "Fixed Income" : h.assetType === "Future" || h.assetType === "Commodity" ? "Commodities" : h.assetType === "FX Forward" ? "Currency" : "Listed Securities",
+  pricingSource: h.priceSource,
+  valuationHierarchy: h.assetType === "Equity" || h.assetType === "ETF" ? "Level 1" : h.assetType === "Option" || h.assetType === "FX Forward" ? "Level 2" : "Level 2",
+  liquidityClassification: h.assetType === "Bond" ? "Weekly" : h.assetType === "Option" ? "Daily" : "Daily",
+  couponRate: h.assetType === "Bond" ? Number((1.2 + (index % 5) * 0.55).toFixed(2)) : undefined,
+  maturityDate: h.assetType === "Bond" ? `203${index % 8}-08-15` : undefined,
+  contractMultiplier: h.assetType === "Option" ? 100 : h.assetType === "Future" ? h.fxRate : undefined,
+  underlyingSecurity: h.assetType === "Option" ? h.ticker.split(" ")[0] : undefined,
+  optionType: h.assetType === "Option" ? (h.ticker.includes("P") ? "Put" : "Call") : undefined,
+  strike: h.assetType === "Option" ? Number(h.ticker.match(/\d+/)?.[0] ?? 100) : undefined,
+  expiry: h.assetType === "Option" ? "2026-07-17" : undefined,
+  settlementType: h.assetType === "Option" || h.assetType === "FX Forward" ? "Cash" : "Physical",
+  stalePricing: index % 11 === 0,
+  toleranceBreach: index % 13 === 0,
+})));
+
+sampleTrades.push(...sampleHoldings.slice(10).map((h, index): Trade => ({
+  id: `TRD-${10500 + index}`,
+  tradeDate: `2026-05-${String(6 + (index % 4)).padStart(2, "0")}`,
+  settleDate: `2026-05-${String(11 + (index % 5)).padStart(2, "0")}`,
+  broker: ["Goldman Sachs", "JP Morgan", "Morgan Stanley", "UBS PB", "Barclays", "BNP Paribas", "HSBC", "Nomura"][index % 8],
+  side: index % 3 === 0 ? "Sell" : "Buy",
+  ticker: h.ticker,
+  quantity: Math.max(1, Math.round(Math.abs(h.quantity) * (0.04 + (index % 5) * 0.01))),
+  price: h.marketPrice,
+  fees: 950 + index * 275,
+  status: index % 9 === 0 ? "Failed" : index % 5 === 0 ? "Pending" : index % 2 === 0 ? "Matched" : "Booked",
+})));
+
+const investorNames = [
+  "Atlas University Endowment", "Riverview Pension Scheme", "Amanah Insurance Pool", "Cedar Grove Foundation", "Falcon Global Macro Fund", "Harbor View Trust",
+  "Meridian Sovereign Reserve", "Orchid Family Office", "Pacific Teachers Pension", "Qatar Strategic Holdings", "Redwood Capital Partners", "Sapphire Health Foundation",
+  "Taurus Multi-Family Office", "Union Retirement Trust", "Vista Charitable Trust", "Westbridge Institutional Fund", "Yamato Pension Reserve", "Zenith Alternatives Platform",
+];
+sampleInvestors.push(...investorNames.map((name, index): Investor => ({
+  id: `i${index + 5}`,
+  name,
+  className: index % 3 === 0 ? "Class A Founder" : index % 3 === 1 ? "Class B Institutional" : "Class C Series 2026",
+  capital: 8_500_000 + index * 1_725_000,
+  shares: 82_000 + index * 13_400,
+  hwm: Number((101.2 + index * 0.37).toFixed(2)),
+  equalizationCredit: 45_000 + index * 18_500,
+  hurdleRate: index % 2 === 0 ? 0.05 : 0.04,
+})));
+
+sampleActivities.push(...sampleInvestors.slice(4).map((investor, index): CapitalActivity => ({
+  id: `cap${index + 4}`,
+  investorId: investor.id,
+  date: `2026-05-${String(1 + (index % 9)).padStart(2, "0")}`,
+  type: index % 4 === 0 ? "Redemption" : "Subscription",
+  amount: 250_000 + index * 125_000,
+  status: index % 7 === 0 ? "Pending" : index % 11 === 0 ? "Rejected" : "Approved",
+})));
+
+sampleAccruals.push(...sampleHoldings.slice(10).map((h, index): Accrual => (index % 3 === 0 ? {
+  id: `acc-div-${index}`,
+  kind: "Dividend",
+  ticker: h.ticker,
+  exDate: `2026-05-${String(12 + (index % 10)).padStart(2, "0")}`,
+  payDate: `2026-06-${String(5 + (index % 18)).padStart(2, "0")}`,
+  sharesEligible: Math.abs(h.quantity),
+  withholdingTax: index % 2 === 0 ? 0.15 : 0.1,
+  netDividend: Math.round(Math.abs(h.quantity) * (0.08 + index * 0.01)),
+} : {
+  id: `acc-cpn-${index}`,
+  kind: "Coupon",
+  ticker: h.ticker,
+  couponPct: Number((1.5 + (index % 6) * 0.45).toFixed(2)),
+  accrualDays: 18 + (index % 44),
+  accruedInterest: 12_000 + index * 2_850,
+  cleanPrice: Number((96.5 + (index % 8) * 0.41).toFixed(2)),
+  dirtyPrice: Number((96.8 + (index % 8) * 0.43).toFixed(2)),
+})));
+
+sampleDerivatives.push(...Array.from({ length: 17 }, (_, index): Derivative => ({
+  id: `d${index + 4}`,
+  type: (["IRS", "CDS", "FX Swap", "TRS", "Future"] as const)[index % 5],
+  reference: ["EUR Euribor 7Y Receive Fixed", "iTraxx XO S45", "USDJPY 6M Swap", "S&P 500 Basket TRS", "US 10Y Note Future"][index % 5],
+  notional: 18_000_000 + index * 4_250_000,
+  mtm: (index % 2 === 0 ? 1 : -1) * (120_000 + index * 48_000),
+  accruedInterest: 22_000 + index * 7_500,
+  collateral: 160_000 + index * 52_000,
+  counterparty: ["Citibank", "Barclays", "Morgan Stanley", "Deutsche Bank", "Goldman Sachs", "HSBC"][index % 6],
+})));
+
+sampleCorporateActions.push(...sampleHoldings.slice(8).map((h, index): CorporateAction => {
+  const eventType = (["Dividend", "Coupon", "Stock Split", "Rights Issue", "Merger", "Spin-off"] as const)[index % 6];
+  const grossAmount = eventType === "Stock Split" ? 0 : Math.round(Math.abs(h.quantity) * (0.04 + index * 0.008));
+  const withholdingTax = eventType === "Dividend" || eventType === "Rights Issue" ? Math.round(grossAmount * 0.15) : 0;
+  return {
+    id: `ca${index + 5}`,
+    eventType,
+    security: h.ticker,
+    exDate: `2026-05-${String(10 + (index % 15)).padStart(2, "0")}`,
+    recordDate: `2026-05-${String(11 + (index % 15)).padStart(2, "0")}`,
+    payDate: `2026-06-${String(4 + (index % 20)).padStart(2, "0")}`,
+    eligibleQuantity: Math.abs(h.quantity),
+    grossAmount,
+    withholdingTax,
+    netReceivable: grossAmount - withholdingTax,
+    status: index % 5 === 0 ? "Announced" : index % 4 === 0 ? "Settled" : index % 3 === 0 ? "Booked" : "Validated",
+    postingStatus: index % 5 === 0 ? "Pending" : index % 4 === 0 ? "Cash Settled" : index % 3 === 0 ? "Posted" : "Accrued",
+  };
+}));
+
+sampleCashRecon.push(...sampleFx.map((fx, index): CashReconRow => ({
+  id: `cash-ext-${index}`,
+  currency: fx.base,
+  internalLedgerCash: Math.round((2_000_000 + index * 415_000) / Math.max(fx.rate, 0.0001)),
+  custodianCash: Math.round((2_000_000 + index * 415_000 + (index % 4 === 0 ? -75_000 : index % 5 === 0 ? 42_500 : 0)) / Math.max(fx.rate, 0.0001)),
+  primeBrokerCash: Math.round((2_000_000 + index * 415_000 + (index % 6 === 0 ? 18_000 : 0)) / Math.max(fx.rate, 0.0001)),
+  breakReason: index % 4 === 0 ? "Custodian timing difference" : index % 5 === 0 ? "PB financing charge pending" : "Matched",
+  owner: ["Treasury", "Cash Recon", "Ops L2", "PB Control"][index % 4],
+  status: index % 4 === 0 ? "Open" : index % 5 === 0 ? "Investigating" : "Approved",
+})));
+
+samplePositionRecon.push(...sampleHoldings.slice(4).map((h, index): PositionReconRow => ({
+  id: `pos-ext-${index}`,
+  ticker: h.ticker,
+  internalPosition: h.quantity,
+  custodianPosition: index % 5 === 0 ? h.quantity - Math.sign(h.quantity || 1) * Math.round(Math.abs(h.quantity) * 0.08) : h.quantity,
+  pbPosition: index % 7 === 0 ? h.quantity + Math.sign(h.quantity || 1) * Math.round(Math.abs(h.quantity) * 0.04) : h.quantity,
+  settlementStatus: index % 6 === 0 ? "Failed Trade" : index % 4 === 0 ? "Pending Settlement" : "Settled",
+  breakReason: index % 5 === 0 ? "Custodian quantity mismatch" : index % 7 === 0 ? "PB file pending settlement update" : "Matched",
+  owner: ["Position Control", "Asia Ops", "EMEA Ops", "PB Control"][index % 4],
+  status: index % 5 === 0 ? "Open" : index % 7 === 0 ? "Investigating" : "Approved",
+})));
+
+const breakTypes: BreakItem["breakType"][] = ["Pricing", "FX", "Cash", "Position", "Corporate Action", "Trade Settlement", "OTC", "GL Imbalance", "NAV Variance"];
+sampleBreaks.push(...Array.from({ length: 22 }, (_, index): BreakItem => ({
+  id: `BRK-${1100 + index}`,
+  breakType: breakTypes[index % breakTypes.length],
+  severity: index % 6 === 0 ? "High" : index % 3 === 0 ? "Medium" : "Low",
+  aging: index % 8,
+  owner: ["Valuations", "Treasury", "Position Control", "Income", "Fund Accounting", "Ops L2"][index % 6],
+  navImpact: 18_500 + index * 42_750,
+  rootCause: ["Vendor price variance", "FX rate source mismatch", "Cash timing difference", "Custodian position mismatch", "Corporate action not fully posted", "Broker confirm pending"][index % 6],
+  status: (["Open", "Investigating", "Pending External Party", "Escalated", "Resolved", "Approved"] as const)[index % 6],
+  resolutionNotes: "Practice item generated for operational investigation and maker-checker review",
+  escalationLevel: (["L1", "L2", "L3", "CFO"] as const)[index % 4],
+  comments: ["Auto-generated practice break", "Review source evidence", "Assess NAV materiality"],
+  slaHours: 8 + (index % 5) * 8,
+})));
+
+sampleUploads.push(...Array.from({ length: 20 }, (_, index): UploadBatch => {
+  const module = (["cashRecon", "positionRecon", "trades", "security", "pricing", "corporateActions", "capital"] as const)[index % 7];
+  const warnings = index % 4;
+  const rejectedRows = index % 9 === 0 ? 1 : 0;
+  return {
+    id: `UPL-${9010 + index}`,
+    module,
+    sourceType: ["Custodian file", "Prime broker file", "Broker confirm", "Bloomberg export", "Pricing vendor file", "Corporate action file", "Transfer agency file"][index % 7],
+    fileName: `${module}_practice_${String(index + 1).padStart(2, "0")}.csv`,
+    uploadedBy: ["Valuations", "Treasury", "Ops L2", "Fund Accounting", "Investor Services"][index % 5],
+    timestamp: `2026-05-09T${String(10 + (index % 7)).padStart(2, "0")}:${String((index * 7) % 60).padStart(2, "0")}:00`,
+    processingStatus: rejectedRows ? "Rejected" : warnings ? "Partially Accepted" : "Validated",
+    validationStatus: rejectedRows ? "Critical" : warnings ? "Warnings" : "Clean",
+    rowCount: 25 + index * 11,
+    rejectedRows,
+    duplicateRecords: index % 5 === 0 ? 2 : 0,
+    warnings,
+    issues: warnings || rejectedRows ? [
+      { id: `VAL-EXT-${index}`, severity: rejectedRows ? "Critical" : "Warning", row: 3 + index, field: module === "pricing" ? "price" : module === "capital" ? "investor_id" : "record_id", message: "Practice validation issue generated from uploaded source file", recommendedAction: "Review validation preview, document evidence, and approve or reject through workflow" },
+    ] : [],
+  };
+}));
+
+baseExceptions.push(...Array.from({ length: 18 }, (_, index): ExceptionItem => ({
+  id: `ex-ext-${index}`,
+  severity: index % 7 === 0 ? "High" : index % 3 === 0 ? "Medium" : "Low",
+  module: ["Pricing", "Cash Reconciliation", "Position Reconciliation", "General Ledger", "Investor Servicing", "Corporate Actions"][index % 6],
+  message: ["Price tolerance breach requires valuation review", "Cash movement unmatched to bank file", "Custodian quantity differs from internal book", "Manual journal pending approval", "Investor allocation file contains pending item", "Income event awaiting tax validation"][index % 6],
+  owner: ["Valuations", "Treasury", "Ops L2", "Fund Accounting", "Investor Services", "Income"][index % 6],
+  status: index % 5 === 0 ? "Investigating" : index % 4 === 0 ? "Cleared" : "Open",
+})));

@@ -79,6 +79,56 @@ const materiality = (nav: number, impact = 0) => {
   return { label: "Minor", tone: "good" as const, ratio };
 };
 
+type ExportValue = string | number | boolean | null | undefined;
+type ExportRow = Record<string, ExportValue>;
+
+function csvEscape(value: ExportValue) {
+  const text = value === null || value === undefined ? "" : String(value);
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function rowsToCsv(rows: ExportRow[]) {
+  if (!rows.length) return "No data\n";
+  const headers = Object.keys(rows[0]);
+  return [headers.join(","), ...rows.map((row) => headers.map((header) => csvEscape(row[header])).join(","))].join("\n");
+}
+
+function downloadCsv(name: string, rows: ExportRow[]) {
+  const url = URL.createObjectURL(new Blob([rowsToCsv(rows)], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportRowsForModule(module: ModuleId, store: FundState, r: ReturnType<typeof useRecalc>): ExportRow[] {
+  if (module === "pricing") return r.holdings.map((h) => ({ Ticker: h.ticker, Asset: h.assetType, Source: h.priceSource, Prior: h.priorPrice, Current: h.marketPrice, MovePct: h.priceMovePct, LastUpdate: h.lastPriceTime }));
+  if (module === "holdings") return r.holdings.map((h) => ({ ISIN: h.isin, Ticker: h.ticker, Asset: h.assetType, Strategy: h.strategy, Currency: h.currency, Quantity: h.quantity, CostPrice: h.costPrice, MarketPrice: h.marketPrice, FX: h.fxRate, MarketValue: h.marketValue, PricePnL: h.pricePnl, FXPnL: h.fxPnl, UnrealizedPnL: h.totalUnrealizedPnl, ExposurePct: h.exposurePct }));
+  if (module === "fx") return store.fxRates.map((fx) => ({ Pair: fx.pair, Base: fx.base, Quote: fx.quote, CurrentRate: fx.rate, PriorRate: fx.priorRate, Source: fx.source }));
+  if (module === "trades") return store.trades.map((t) => ({ TradeID: t.id, TradeDate: t.tradeDate, SettleDate: t.settleDate, Broker: t.broker, Side: t.side, Ticker: t.ticker, Quantity: t.quantity, Price: t.price, Fees: t.fees, NetAmount: t.quantity * t.price + (t.side === "Buy" ? t.fees : -t.fees), Status: t.status }));
+  if (["capital", "subsReds", "investorReporting", "equalization", "waterfall", "mgmtFees", "perfFees", "expenses"].includes(module)) return store.investors.map((i) => ({ Investor: i.name, Class: i.className, Capital: i.capital, Shares: i.shares, HWM: i.hwm, EqualizationCredit: i.equalizationCredit, AllocationPct: r.investorCapital ? i.capital / r.investorCapital * 100 : 0, ManagementFeePct: store.managementFeePct, PerformanceFeePct: store.performanceFeePct }));
+  if (["otc", "mtm"].includes(module)) return store.derivatives.map((d) => ({ ID: d.id, Type: d.type, Reference: d.reference, Notional: d.notional, MTM: d.mtm, AccruedInterest: d.accruedInterest, Collateral: d.collateral, Counterparty: d.counterparty }));
+  if (module === "cashRecon") return store.cashRecon.map((c) => ({ Currency: c.currency, InternalLedgerCash: c.internalLedgerCash, CustodianCash: c.custodianCash, PrimeBrokerCash: c.primeBrokerCash, Difference: c.internalLedgerCash - c.custodianCash, BreakReason: c.breakReason, Owner: c.owner, Status: c.status }));
+  if (module === "positionRecon") return store.positionRecon.map((p) => ({ Ticker: p.ticker, InternalPosition: p.internalPosition, CustodianPosition: p.custodianPosition, PBPosition: p.pbPosition, Difference: p.internalPosition - p.custodianPosition, SettlementStatus: p.settlementStatus, BreakReason: p.breakReason, Owner: p.owner, Status: p.status }));
+  if (module === "nav") return [{ GrossAssets: r.grossAssets, Liabilities: r.liabilities, NetAssets: r.netAssets, InvestorCapital: r.investorCapital, SharesOutstanding: r.sharesOutstanding, NavPerShare: r.navPerShare, ManagementFee: r.managementFee, PerformanceFee: r.performanceFee }];
+  return store.auditTrail.map((a) => ({ Timestamp: a.timestamp, Field: a.field, OldValue: a.oldValue, NewValue: a.newValue, Action: a.action, ImpactedModules: a.impactedModules.join(" | ") }));
+}
+
+function impactReportRows(store: FundState): ExportRow[] {
+  const impact = store.activeScenarioImpact;
+  if (!impact) return [{ Message: "No submitted manual update or scenario impact is available yet. Edit a value and click Submit Manual Updates first." }];
+  const latest = store.auditTrail[0];
+  return [
+    { Metric: "NAV", Previous: impact.before.nav, Current: impact.after.nav, Delta: impact.after.nav - impact.before.nav, LatestAction: latest?.action ?? "" },
+    { Metric: "NAV/share", Previous: impact.before.navPerShare, Current: impact.after.navPerShare, Delta: impact.after.navPerShare - impact.before.navPerShare, LatestAction: latest?.field ?? "" },
+    { Metric: "P&L", Previous: impact.before.pnl, Current: impact.after.pnl, Delta: impact.after.pnl - impact.before.pnl, LatestAction: latest?.newValue ?? "" },
+    { Metric: "Cash", Previous: impact.before.cash, Current: impact.after.cash, Delta: impact.after.cash - impact.before.cash, LatestAction: latest?.oldValue ?? "" },
+    { Metric: "Investor Capital", Previous: impact.before.investorCapital, Current: impact.after.investorCapital, Delta: impact.after.investorCapital - impact.before.investorCapital, LatestAction: latest?.impactedModules.join(" | ") ?? "" },
+    { Metric: "Open Breaks", Previous: impact.before.openBreaks, Current: impact.after.openBreaks, Delta: impact.after.openBreaks - impact.before.openBreaks, LatestAction: latest?.timestamp ?? "" },
+  ];
+}
+
 const editableMatrix = [
   { module: "Portfolio Holdings", fields: "Quantity, Cost Price, Market Price", impact: "Holdings, unrealized P&L, NAV, exposure, balance sheet, investor allocation" },
   { module: "Pricing Engine", fields: "Current Market Price", impact: "Pricing exceptions, NAV, P&L, GL fair value posting, fees" },
@@ -154,6 +204,9 @@ function EditableText({ value, onCommit }: { value: string; onCommit: (value: st
 function ManualSubmitBar({ label, fields }: { label: string; fields: string }) {
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
   const submitManualUpdates = useFundStore((s) => s.submitManualUpdates);
+  const store = useFundStore();
+  const r = useRecalc();
+  const activeLabel = modules.find((m) => m.id === store.activeModule)?.label ?? "module";
   const handleSubmit = () => {
     submitManualUpdates(label, fields);
     setSubmittedAt(new Date().toLocaleTimeString());
@@ -167,7 +220,14 @@ function ManualSubmitBar({ label, fields }: { label: string; fields: string }) {
       <button className="terminal-button" onClick={handleSubmit}>
         <BookOpenCheck size={15} /> Submit Manual Updates
       </button>
+      <button className="terminal-button" onClick={() => downloadCsv(`${store.activeModule}-current-data.csv`, exportRowsForModule(store.activeModule, store, r))}>
+        <Download size={15} /> Download Current Data
+      </button>
+      <button className="terminal-button" onClick={() => downloadCsv(`${store.activeModule}-before-after-impact.csv`, impactReportRows(store))}>
+        <FileDown size={15} /> Download Impact Report
+      </button>
       {submittedAt && <small>Submitted {submittedAt}</small>}
+      {!submittedAt && <small>{activeLabel} evidence pack</small>}
     </div>
   );
 }
@@ -227,6 +287,96 @@ function FileUploadPanel({ module, title }: { module: UploadModule; title: strin
       }))} empty="No uploads yet for this module." />
       {moduleUploads[0]?.issues.length ? <div className="validation-log">{moduleUploads[0].issues.map((i) => <div key={i.id} className={`validation ${i.severity.toLowerCase()}`}><b>{i.severity}</b><span>{i.field ?? "file"} {i.row ? `row ${i.row}` : ""}</span><p>{i.message}</p><small>{i.recommendedAction}</small></div>)}</div> : null}
     </div>
+  );
+}
+
+const navPackSources: Array<{ module: UploadModule; sourceType: string; label: string; expected: string; impact: string }> = [
+  { module: "pricing", sourceType: "NAV prices", label: "Pricing file", expected: "ticker, currency, price, price_date", impact: "Updates valuation, unrealized P&L, pricing breaks and NAV." },
+  { module: "pricing", sourceType: "FX pricing sheet", label: "FX rate sheet", expected: "pair, current_rate, prior_rate", impact: "Updates FX translation, local/base values and FX gain/loss." },
+  { module: "security", sourceType: "Security reference data", label: "Security master", expected: "isin, ticker, asset_type, currency", impact: "Validates identifiers, pricing hierarchy and missing reference data." },
+  { module: "trades", sourceType: "Executed trade file", label: "Trade blotter", expected: "trade_id, side, quantity, price, fees", impact: "Updates positions, cash, broker fees, GL and settlement breaks." },
+  { module: "cashRecon", sourceType: "Custodian cash statement", label: "Cash statement", expected: "account, currency, balance, movement", impact: "Creates cash breaks, timing differences and liquidity alerts." },
+  { module: "positionRecon", sourceType: "Custodian positions", label: "Position file", expected: "isin, ticker, quantity, market_value", impact: "Creates position breaks and validates custody/PB holdings." },
+  { module: "corporateActions", sourceType: "Corporate action announcement", label: "Corporate actions", expected: "event_type, security, ex_date, pay_date", impact: "Creates accruals, receivables, postings and settlement tasks." },
+  { module: "capital", sourceType: "Transfer agency file", label: "Investor capital", expected: "investor, class, subscription, redemption", impact: "Updates capital, shares, equalization, fees and NAV/share." },
+];
+
+function NavPackInputCenter() {
+  const store = useFundStore();
+  const r = useRecalc();
+  const navModules = new Set(navPackSources.map((s) => s.module));
+  const navUploads = store.uploads.filter((u) => navModules.has(u.module)).slice(0, 20);
+  const handleFile = async (source: typeof navPackSources[number], file?: File) => {
+    if (!file) return;
+    const text = await file.text().catch(() => `${file.name}\nXLSX metadata-only simulation`);
+    store.processUpload(source.module, source.sourceType, { name: file.name, text });
+  };
+  const downloadInputRegister = () => downloadCsv("nav-pack-input-register.csv", navUploads.map((u) => ({
+    Timestamp: new Date(u.timestamp).toLocaleString(),
+    Module: u.module,
+    Source: u.sourceType,
+    File: u.fileName,
+    Status: u.processingStatus,
+    Validation: u.validationStatus,
+    Rows: u.rowCount,
+    Rejected: u.rejectedRows,
+    Warnings: u.warnings,
+    Duplicates: u.duplicateRecords,
+  })));
+  const downloadNavSummary = () => downloadCsv("nav-pack-summary.csv", [
+    { Metric: "Gross assets", Value: r.grossAssets },
+    { Metric: "Liabilities", Value: r.liabilities },
+    { Metric: "Net assets", Value: r.netAssets },
+    { Metric: "Investor capital", Value: r.investorCapital },
+    { Metric: "Shares outstanding", Value: r.sharesOutstanding },
+    { Metric: "NAV/share", Value: r.navPerShare },
+    { Metric: "Management fee accrual", Value: r.managementFee },
+    { Metric: "Performance fee accrual", Value: r.performanceFee },
+    { Metric: "Open breaks", Value: openBreakCount(store) },
+  ]);
+  return (
+    <section className="nav-input-center">
+      <div className="upload-head">
+        <div>
+          <b>NAV Pack Input Center</b>
+          <span>Load pricing, FX, custody, trade, cash, corporate action and investor files into one NAV evidence pack.</span>
+        </div>
+        <div className="inline-actions">
+          <button className="terminal-button" onClick={downloadInputRegister}><Download size={15} /> Download Inputs</button>
+          <button className="terminal-button" onClick={downloadNavSummary}><FileDown size={15} /> Download NAV Summary</button>
+          <button className="terminal-button" onClick={() => downloadCsv("nav-pack-before-after-impact.csv", impactReportRows(store))}><FileSpreadsheet size={15} /> Download Impact</button>
+        </div>
+      </div>
+      <div className="nav-source-grid">
+        {navPackSources.map((source) => {
+          const latest = store.uploads.find((u) => u.module === source.module && u.sourceType === source.sourceType);
+          return (
+            <div className="nav-source-card" key={`${source.module}-${source.sourceType}`}>
+              <div>
+                <b>{source.label}</b>
+                <span>{source.expected}</span>
+              </div>
+              <p>{source.impact}</p>
+              <small>{latest ? `${latest.fileName} - ${latest.validationStatus} (${latest.rowCount} rows)` : "No file loaded yet"}</small>
+              <label className="terminal-button">
+                <UploadCloud size={15} /> Upload Source
+                <input type="file" accept=".csv,.json,.xlsx" hidden onChange={(e) => handleFile(source, e.target.files?.[0])} />
+              </label>
+            </div>
+          );
+        })}
+      </div>
+      <SimpleRows rows={navUploads.map((u) => ({
+        Time: new Date(u.timestamp).toLocaleString(),
+        Source: u.sourceType,
+        File: u.fileName,
+        Status: u.processingStatus,
+        Validation: u.validationStatus,
+        Rows: u.rowCount,
+        Rejected: u.rejectedRows,
+        Warnings: u.warnings,
+      }))} empty="No NAV source files have been uploaded yet." />
+    </section>
   );
 }
 
@@ -669,6 +819,7 @@ function TrialBalance() {
 
 function Statements({ kind }: { kind: "pl" | "balance" | "nav" }) {
   const r = useRecalc();
+  const store = useFundStore();
   if (kind === "pl") {
     const grossIncome = r.dividendIncome + r.interestIncome + r.realizedGains + r.unrealizedGains + r.fxGainLoss;
     const financingCost = 92000;
@@ -702,7 +853,29 @@ function Statements({ kind }: { kind: "pl" | "balance" | "nav" }) {
     const capital = capitalRows.reduce((s, x) => s + x.amount, 0);
     return <section className="panel full"><PanelTitle title="Balance Sheet" right="Assets = Liabilities + Capital validation" /><div className={`balance-banner ${Math.abs(assets - liabilities - capital) < 1 ? "good" : "bad"}`}>Assets {fmt(assets, true)} = Liabilities {fmt(liabilities, true)} + Capital {fmt(capital, true)}</div><SimpleRows rows={[...r.balanceSheet.map((x) => ({ Section: x.section, Line: x.line, Amount: fmt(x.amount, true) })), { Section: "Assets", Line: "TOTAL ASSETS", Amount: fmt(assets, true) }, { Section: "Liabilities", Line: "TOTAL LIABILITIES", Amount: fmt(liabilities, true) }, { Section: "Capital", Line: "TOTAL CAPITAL", Amount: fmt(capital, true) }]} /></section>;
   }
-  return <section className="panel full nav-package"><PanelTitle title="NAV Package" right="Core valuation package" /><div className="metrics-row"><Metric label="Gross assets" value={fmt(r.grossAssets, true)} /><Metric label="Liabilities" value={fmt(r.liabilities, true)} tone="warn" /><Metric label="Net assets" value={fmt(r.netAssets, true)} tone="good" /><Metric label="Investor capital" value={fmt(r.investorCapital, true)} /><Metric label="Shares outstanding" value={num(r.sharesOutstanding)} /><Metric label="NAV/share" value={r.navPerShare.toFixed(4)} tone="good" /></div><SimpleRows rows={[{ Item: "High water mark base", Value: fmt(useFundStore.getState().investors.reduce((s, i) => s + i.hwm * i.shares, 0), true) }, { Item: "Equalization credits", Value: fmt(useFundStore.getState().investors.reduce((s, i) => s + i.equalizationCredit, 0), true) }, { Item: "Management fee accrual", Value: fmt(r.managementFee) }, { Item: "Performance fee accrual", Value: fmt(r.performanceFee) }]} /><div className="mini-waterfall">{r.waterfall.map((w) => <div key={w.name} className={w.value >= 0 ? "step good" : "step bad"}><span>{w.name}</span><b>{fmt(w.value, true)}</b></div>)}</div></section>;
+  return (
+    <section className="panel full nav-package">
+      <PanelTitle title="NAV Package" right="Core valuation package" />
+      <div className="metrics-row">
+        <Metric label="Gross assets" value={fmt(r.grossAssets, true)} />
+        <Metric label="Liabilities" value={fmt(r.liabilities, true)} tone="warn" />
+        <Metric label="Net assets" value={fmt(r.netAssets, true)} tone="good" />
+        <Metric label="Investor capital" value={fmt(r.investorCapital, true)} />
+        <Metric label="Shares outstanding" value={num(r.sharesOutstanding)} />
+        <Metric label="NAV/share" value={r.navPerShare.toFixed(4)} tone="good" />
+      </div>
+      <NavPackInputCenter />
+      <SimpleRows rows={[
+        { Item: "High water mark base", Value: fmt(store.investors.reduce((s, i) => s + i.hwm * i.shares, 0), true) },
+        { Item: "Equalization credits", Value: fmt(store.investors.reduce((s, i) => s + i.equalizationCredit, 0), true) },
+        { Item: "Management fee accrual", Value: fmt(r.managementFee) },
+        { Item: "Performance fee accrual", Value: fmt(r.performanceFee) },
+      ]} />
+      <div className="mini-waterfall">
+        {r.waterfall.map((w) => <div key={w.name} className={w.value >= 0 ? "step good" : "step bad"}><span>{w.name}</span><b>{fmt(w.value, true)}</b></div>)}
+      </div>
+    </section>
+  );
 }
 
 function InvestorView({ fees = false }: { fees?: boolean }) {

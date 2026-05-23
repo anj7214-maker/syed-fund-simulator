@@ -83,6 +83,203 @@ const tradeCashMovement = (t: { side: "Buy" | "Sell"; quantity: number; price: n
 const tradeCashDebit = (t: { side: "Buy" | "Sell"; quantity: number; price: number; fees: number }) => Math.max(tradeCashMovement(t), 0);
 const tradeCashCredit = (t: { side: "Buy" | "Sell"; quantity: number; price: number; fees: number }) => Math.max(-tradeCashMovement(t), 0);
 
+const fundProfitBeforeFees = (r: ReturnType<typeof useRecalc>) =>
+  r.realizedGains + r.unrealizedGains + r.dividendIncome + r.interestIncome + r.fxGainLoss - r.adminExpenses - r.brokerFees;
+
+function activityTotals(store: FundState, investorId: string) {
+  return store.activities
+    .filter((a) => a.investorId === investorId)
+    .reduce((acc, a) => {
+      if (a.type === "Subscription" && a.status === "Approved") acc.subscriptions += a.amount;
+      if (a.type === "Redemption" && a.status !== "Rejected") acc.redemptions += a.amount;
+      return acc;
+    }, { subscriptions: 0, redemptions: 0 });
+}
+
+function investorFeeSchedules(store: FundState, r: ReturnType<typeof useRecalc>) {
+  const profitBeforeFees = fundProfitBeforeFees(r);
+  const rawMgmt = store.investors.map((i) => {
+    const activity = activityTotals(store, i.id);
+    const openingCapital = Math.max(i.capital - activity.subscriptions + activity.redemptions, 0);
+    const endingBeforeFees = openingCapital + activity.subscriptions - activity.redemptions;
+    const feeBasis = (openingCapital + endingBeforeFees) / 2;
+    return { investor: i, activity, openingCapital, endingBeforeFees, feeBasis, rawFee: (feeBasis * store.managementFeePct) / 365 };
+  });
+  const rawMgmtTotal = rawMgmt.reduce((sum, row) => sum + row.rawFee, 0) || 1;
+  const managementRows = rawMgmt.map((row) => {
+    const grossManagementFee = row.rawFee / rawMgmtTotal * r.managementFee;
+    const feeAlreadyPaid = grossManagementFee * 0.35;
+    const feePayable = grossManagementFee - feeAlreadyPaid;
+    return {
+      investor: row.investor,
+      investorName: row.investor.name,
+      className: row.investor.className,
+      openingCapital: row.openingCapital,
+      capitalContribution: row.activity.subscriptions,
+      redemption: row.activity.redemptions,
+      endingCapitalBeforeFees: row.endingBeforeFees,
+      feeBasisOption: "Average NAV",
+      feeBasis: row.feeBasis,
+      managementFeePct: store.managementFeePct,
+      grossManagementFee,
+      feeAlreadyPaid,
+      feePayable,
+      feeAccrued: feePayable,
+      netCapitalAfterManagementFee: row.endingBeforeFees - grossManagementFee,
+    };
+  });
+
+  const rawPerf = store.investors.map((i) => {
+    const activity = activityTotals(store, i.id);
+    const allocation = r.investorCapital ? i.capital / r.investorCapital : 0;
+    const openingCapital = Math.max(i.capital - activity.subscriptions + activity.redemptions, 0);
+    const endingBeforePerformanceFee = i.capital + allocation * profitBeforeFees;
+    const grossProfitLoss = endingBeforePerformanceFee - openingCapital - activity.subscriptions + activity.redemptions;
+    const benchmarkReturnPct = 0.04;
+    const benchmarkAmount = openingCapital * benchmarkReturnPct;
+    const hurdleRatePct = i.hurdleRate || store.fundSetup.hurdleRate || 0.08;
+    const hurdleAmount = openingCapital * hurdleRatePct;
+    const hwmAmount = i.hwm * i.shares;
+    const excessProfit = Math.max(0, grossProfitLoss - Math.max(benchmarkAmount, hurdleAmount, hwmAmount - openingCapital));
+    const investorReturnPct = openingCapital ? grossProfitLoss / openingCapital : 0;
+    const crystallized = true;
+    const reasons = [
+      grossProfitLoss <= 0 ? "Negative Return" : "",
+      investorReturnPct <= hurdleRatePct ? "Below Hurdle" : "",
+      investorReturnPct <= benchmarkReturnPct ? "Below Benchmark" : "",
+      endingBeforePerformanceFee <= hwmAmount ? "Below High Water Mark" : "",
+      !crystallized ? "Not Crystallized" : "",
+    ].filter(Boolean);
+    return { investor: i, activity, allocation, openingCapital, endingBeforePerformanceFee, grossProfitLoss, benchmarkReturnPct, benchmarkAmount, hurdleRatePct, hurdleAmount, hwmAmount, excessProfit, investorReturnPct, crystallized, reason: reasons[0] ?? "Eligible", rawFee: reasons.length ? 0 : excessProfit * store.performanceFeePct };
+  });
+  const rawPerfTotal = rawPerf.reduce((sum, row) => sum + row.rawFee, 0);
+  const performanceRows = rawPerf.map((row) => {
+    const performanceFeeEarned = rawPerfTotal ? row.rawFee / rawPerfTotal * r.performanceFee : 0;
+    const performanceFeePaid = performanceFeeEarned * 0.25;
+    const equalizationAdjustment = row.investor.equalizationCredit && row.activity.subscriptions > 0 ? row.investor.equalizationCredit : 0;
+    return {
+      investor: row.investor,
+      investorName: row.investor.name,
+      className: row.investor.className,
+      openingCapital: row.openingCapital,
+      subscriptions: row.activity.subscriptions,
+      redemptions: row.activity.redemptions,
+      endingCapitalBeforePerformanceFee: row.endingBeforePerformanceFee,
+      grossProfitLoss: row.grossProfitLoss,
+      investorReturnPct: row.investorReturnPct,
+      benchmarkReturnPct: row.benchmarkReturnPct,
+      benchmarkAmount: row.benchmarkAmount,
+      hurdleRatePct: row.hurdleRatePct,
+      hurdleAmount: row.hurdleAmount,
+      highWaterMark: row.hwmAmount,
+      performanceFeePct: store.performanceFeePct,
+      performanceFeeEarned,
+      performanceFeePaid,
+      performanceFeePayable: performanceFeeEarned - performanceFeePaid,
+      equalizationAdjustment,
+      netInvestorCapitalAfterPerformanceFee: row.endingBeforePerformanceFee - performanceFeeEarned + equalizationAdjustment,
+      eligibility: row.reason === "Eligible" ? "Eligible" : "Not Eligible",
+      reason: row.reason === "Eligible" ? "Performance Fee Earned" : `No Performance Fee Earned - ${row.reason}`,
+      flag: row.reason,
+    };
+  });
+  return { managementRows, performanceRows, profitBeforeFees };
+}
+
+function defaultWaterfallInputs(r: ReturnType<typeof useRecalc>) {
+  return {
+    totalExitProceeds: Math.max(r.netAssets * 1.12, 1),
+    totalLpCapitalContribution: Math.max(r.investorCapital * 0.98, 1),
+    totalGpCapitalContribution: Math.max(r.investorCapital * 0.02, 1),
+    preferredReturnPct: 0.08,
+    gpCatchUpPct: 1,
+    lpCarryPct: 0.8,
+    gpCarryPct: 0.2,
+  };
+}
+
+function waterfallEngine(store: FundState, r: ReturnType<typeof useRecalc>, inputs = defaultWaterfallInputs(r)) {
+  const totalCapital = inputs.totalLpCapitalContribution + inputs.totalGpCapitalContribution;
+  const rocTotal = Math.min(inputs.totalExitProceeds, totalCapital);
+  const lpRoc = rocTotal * (inputs.totalLpCapitalContribution / totalCapital);
+  const gpRoc = rocTotal - lpRoc;
+  let remaining = inputs.totalExitProceeds - rocTotal;
+  const preferredReturnAmount = inputs.totalLpCapitalContribution * inputs.preferredReturnPct;
+  const lpPreferred = Math.min(remaining, preferredReturnAmount);
+  remaining -= lpPreferred;
+  const gpCatchUpAmount = Math.min(remaining, lpPreferred * inputs.gpCatchUpPct);
+  remaining -= gpCatchUpAmount;
+  const lpResidual = remaining * inputs.lpCarryPct;
+  const gpResidual = remaining * inputs.gpCarryPct;
+  const lpCapitalBase = store.investors.reduce((sum, i) => sum + i.capital, 0) || 1;
+  const partnerRows = store.investors.map((i) => {
+    const ownership = i.capital / lpCapitalBase;
+    const rocReceived = lpRoc * ownership;
+    const preferredReturnReceived = lpPreferred * ownership;
+    const residualSplitReceived = lpResidual * ownership;
+    const totalDistribution = rocReceived + preferredReturnReceived + residualSplitReceived;
+    return {
+      partnerName: i.name,
+      partnerType: "LP",
+      capitalContribution: i.capital,
+      ownershipPct: ownership,
+      rocReceived,
+      preferredReturnReceived,
+      gpCatchUpReceived: 0,
+      residualSplitReceived,
+      totalDistribution,
+      remainingUnreturnedCapital: Math.max(i.capital - rocReceived, 0),
+      moic: i.capital ? totalDistribution / i.capital : 0,
+    };
+  });
+  const gpTotalDistribution = gpRoc + gpCatchUpAmount + gpResidual;
+  partnerRows.push({
+    partnerName: "General Partner",
+    partnerType: "GP",
+    capitalContribution: inputs.totalGpCapitalContribution,
+    ownershipPct: inputs.totalGpCapitalContribution / totalCapital,
+    rocReceived: gpRoc,
+    preferredReturnReceived: 0,
+    gpCatchUpReceived: gpCatchUpAmount,
+    residualSplitReceived: gpResidual,
+    totalDistribution: gpTotalDistribution,
+    remainingUnreturnedCapital: Math.max(inputs.totalGpCapitalContribution - gpRoc, 0),
+    moic: inputs.totalGpCapitalContribution ? gpTotalDistribution / inputs.totalGpCapitalContribution : 0,
+  });
+  const totalDistributed = partnerRows.reduce((sum, p) => sum + p.totalDistribution, 0);
+  return {
+    inputs,
+    steps: [
+      { step: "Step 1 - Return of Capital / ROC", lpAmount: lpRoc, gpAmount: gpRoc, remainingAfterStep: inputs.totalExitProceeds - rocTotal },
+      { step: "Step 2 - Preferred Return", lpAmount: lpPreferred, gpAmount: 0, remainingAfterStep: inputs.totalExitProceeds - rocTotal - lpPreferred },
+      { step: "Step 3 - GP Catch-Up", lpAmount: 0, gpAmount: gpCatchUpAmount, remainingAfterStep: inputs.totalExitProceeds - rocTotal - lpPreferred - gpCatchUpAmount },
+      { step: "Step 4 - Residual 80/20 Split", lpAmount: lpResidual, gpAmount: gpResidual, remainingAfterStep: 0 },
+    ],
+    partnerRows,
+    totalDistributed,
+    controlStatus: Math.abs(totalDistributed - inputs.totalExitProceeds) < 1 ? "Pass" : "Exception",
+  };
+}
+
+function navMovementBridgeRows(store: FundState, r: ReturnType<typeof useRecalc>) {
+  const priorNav = store.activeScenarioImpact?.before.nav ?? r.investorCapital;
+  const subs = store.activities.filter((a) => a.type === "Subscription" && a.status === "Approved").reduce((s, a) => s + a.amount, 0);
+  const reds = store.activities.filter((a) => a.type === "Redemption" && a.status !== "Rejected").reduce((s, a) => s + a.amount, 0);
+  return [
+    { Component: "Prior NAV", Amount: priorNav },
+    { Component: "Subscriptions", Amount: subs },
+    { Component: "Redemptions", Amount: -reds },
+    { Component: "Realized Gain/Loss", Amount: r.realizedGains },
+    { Component: "Unrealized Gain/Loss", Amount: r.unrealizedGains },
+    { Component: "Income", Amount: r.dividendIncome + r.interestIncome },
+    { Component: "Expenses", Amount: -(r.adminExpenses + r.brokerFees) },
+    { Component: "Management Fees", Amount: -r.managementFee },
+    { Component: "Performance Fees", Amount: -r.performanceFee },
+    { Component: "FX Impact", Amount: r.fxGainLoss },
+    { Component: "Current NAV", Amount: r.netAssets },
+  ];
+}
+
 type ExportValue = string | number | boolean | null | undefined;
 type ExportRow = Record<string, ExportValue>;
 
@@ -111,7 +308,19 @@ function exportRowsForModule(module: ModuleId, store: FundState, r: ReturnType<t
   if (module === "holdings") return r.holdings.map((h) => ({ ISIN: h.isin, Ticker: h.ticker, Asset: h.assetType, Strategy: h.strategy, Currency: h.currency, Quantity: h.quantity, CostPrice: h.costPrice, MarketPrice: h.marketPrice, FX: h.fxRate, MarketValue: h.marketValue, PricePnL: h.pricePnl, FXPnL: h.fxPnl, UnrealizedPnL: h.totalUnrealizedPnl, ExposurePct: h.exposurePct }));
   if (module === "fx") return store.fxRates.map((fx) => ({ Pair: fx.pair, Base: fx.base, Quote: fx.quote, CurrentRate: fx.rate, PriorRate: fx.priorRate, Source: fx.source }));
   if (module === "trades") return store.trades.map((t) => ({ TradeID: t.id, TradeDate: t.tradeDate, SettleDate: t.settleDate, Broker: t.broker, Side: t.side, Ticker: t.ticker, Quantity: t.quantity, Price: t.price, GrossAmount: tradeGross(t), BrokerFees: t.fees, CashDebit: tradeCashDebit(t), CashCredit: tradeCashCredit(t), SignedCashMovement: tradeCashMovement(t), InvestmentDebit: t.side === "Buy" ? tradeGross(t) : 0, InvestmentCredit: t.side === "Sell" ? tradeGross(t) : 0, Status: t.status }));
-  if (["capital", "subsReds", "investorReporting", "equalization", "waterfall", "mgmtFees", "perfFees", "expenses"].includes(module)) return store.investors.map((i) => ({ Investor: i.name, Class: i.className, Capital: i.capital, Shares: i.shares, HWM: i.hwm, EqualizationCredit: i.equalizationCredit, AllocationPct: r.investorCapital ? i.capital / r.investorCapital * 100 : 0, ManagementFeePct: store.managementFeePct, PerformanceFeePct: store.performanceFeePct }));
+  if (module === "mgmtFees") {
+    const { managementRows } = investorFeeSchedules(store, r);
+    return managementRows.map((row) => ({ Investor: row.investorName, OpeningCapital: row.openingCapital, CapitalContribution: row.capitalContribution, Redemption: row.redemption, FeeBasis: row.feeBasis, ManagementFeePct: row.managementFeePct, GrossManagementFee: row.grossManagementFee, FeeAlreadyPaid: row.feeAlreadyPaid, FeePayable: row.feePayable, FeeAccrued: row.feeAccrued, NetCapitalAfterManagementFee: row.netCapitalAfterManagementFee }));
+  }
+  if (module === "perfFees") {
+    const { performanceRows } = investorFeeSchedules(store, r);
+    return performanceRows.map((row) => ({ Investor: row.investorName, OpeningCapital: row.openingCapital, GrossProfitLoss: row.grossProfitLoss, BenchmarkReturnPct: row.benchmarkReturnPct, HurdleRatePct: row.hurdleRatePct, HighWaterMark: row.highWaterMark, PerformanceFeeEarned: row.performanceFeeEarned, PerformanceFeePaid: row.performanceFeePaid, PerformanceFeePayable: row.performanceFeePayable, EqualizationAdjustment: row.equalizationAdjustment, NetCapitalAfterPerformanceFee: row.netInvestorCapitalAfterPerformanceFee, Status: row.reason }));
+  }
+  if (module === "waterfall") {
+    const waterfall = waterfallEngine(store, r);
+    return waterfall.partnerRows.map((row) => ({ Partner: row.partnerName, Type: row.partnerType, CapitalContribution: row.capitalContribution, OwnershipPct: row.ownershipPct, ROC: row.rocReceived, PreferredReturn: row.preferredReturnReceived, GPCatchUp: row.gpCatchUpReceived, ResidualSplit: row.residualSplitReceived, TotalDistribution: row.totalDistribution, RemainingUnreturnedCapital: row.remainingUnreturnedCapital, MOIC: row.moic }));
+  }
+  if (["capital", "subsReds", "investorReporting", "equalization", "expenses"].includes(module)) return store.investors.map((i) => ({ Investor: i.name, Class: i.className, Capital: i.capital, Shares: i.shares, HWM: i.hwm, EqualizationCredit: i.equalizationCredit, AllocationPct: r.investorCapital ? i.capital / r.investorCapital * 100 : 0, ManagementFeePct: store.managementFeePct, PerformanceFeePct: store.performanceFeePct }));
   if (["otc", "mtm"].includes(module)) return store.derivatives.map((d) => ({ ID: d.id, Type: d.type, Reference: d.reference, Notional: d.notional, MTM: d.mtm, AccruedInterest: d.accruedInterest, Collateral: d.collateral, Counterparty: d.counterparty }));
   if (module === "cashRecon") return store.cashRecon.map((c) => ({ Currency: c.currency, InternalLedgerCash: c.internalLedgerCash, CustodianCash: c.custodianCash, PrimeBrokerCash: c.primeBrokerCash, Difference: c.internalLedgerCash - c.custodianCash, BreakReason: c.breakReason, Owner: c.owner, Status: c.status }));
   if (module === "positionRecon") return store.positionRecon.map((p) => ({ Ticker: p.ticker, InternalPosition: p.internalPosition, CustodianPosition: p.custodianPosition, PBPosition: p.pbPosition, Difference: p.internalPosition - p.custodianPosition, SettlementStatus: p.settlementStatus, BreakReason: p.breakReason, Owner: p.owner, Status: p.status }));
@@ -121,7 +330,7 @@ function exportRowsForModule(module: ModuleId, store: FundState, r: ReturnType<t
 
 function impactReportRows(store: FundState): ExportRow[] {
   const impact = store.activeScenarioImpact;
-  if (!impact) return [{ Message: "No submitted manual update or scenario impact is available yet. Edit a value and click Submit Manual Updates first." }];
+  if (!impact) return [{ Message: "No submitted manual update or scenario impact is available yet. Edit a value and click Submit Manual Update & Recalculate NAV first." }];
   const latest = store.auditTrail[0];
   return [
     { Metric: "NAV", Previous: impact.before.nav, Current: impact.after.nav, Delta: impact.after.nav - impact.before.nav, LatestAction: latest?.action ?? "" },
@@ -381,7 +590,7 @@ function ManualSubmitBar({ label, fields }: { label: string; fields: string }) {
         <span>Editable fields: {fields}</span>
       </div>
       <button className="terminal-button" onClick={handleSubmit}>
-        <BookOpenCheck size={15} /> Submit Manual Updates
+        <BookOpenCheck size={15} /> Submit Manual Update & Recalculate NAV
       </button>
       <button className="terminal-button" onClick={() => downloadCsv(`${store.activeModule}-current-data.csv`, exportRowsForModule(store.activeModule, store, r))}>
         <Download size={15} /> Download Current Data
@@ -1059,6 +1268,147 @@ function InvestorView({ fees = false }: { fees?: boolean }) {
   return <section className="panel full"><PanelTitle title={fees ? "Fee Engine" : "Investor Capital Activity"} right="Allocation basis updates NAV/share and statements" />{fees && <div className="fee-controls"><label>Management fee <EditableNumber value={managementFeePct} onCommit={(v) => setFee("management", v)} /></label><label>Performance fee <EditableNumber value={performanceFeePct} onCommit={(v) => setFee("performance", v)} /></label><span>Daily accrual: average NAV × fee % ÷ 365 = {fmt(r.managementFee)}</span></div>}<div className="table-wrap"><table className="data-grid"><thead><tr><th>Investor</th><th>Class</th><th>Capital</th><th>Shares</th><th>HWM</th><th>Equalization</th><th>Allocation %</th></tr></thead><tbody>{investors.map((i) => <tr key={i.id}><td>{i.name}</td><td>{i.className}</td><td><EditableNumber value={i.capital} onCommit={(v) => updateInvestor(i.id, "capital", v)} /></td><td><EditableNumber value={i.shares} onCommit={(v) => updateInvestor(i.id, "shares", v)} /></td><td><EditableNumber value={i.hwm} onCommit={(v) => updateInvestor(i.id, "hwm", v)} /></td><td>{fmt(i.equalizationCredit, true)}</td><td>{((i.capital / r.investorCapital) * 100).toFixed(2)}%</td></tr>)}</tbody></table></div></section>;
 }
 
+function ManagementFeeInvestorLevelView() {
+  const store = useFundStore();
+  const r = useRecalc();
+  const { managementRows } = investorFeeSchedules(store, r);
+  const totalGross = managementRows.reduce((sum, row) => sum + row.grossManagementFee, 0);
+  const glFee = r.trialBalance.find((x) => x.account === "Management fee expense")?.debit ?? 0;
+  return (
+    <section className="panel full">
+      <PanelTitle title="Management Fee - Investor Level Actual Values" right="Investor fee basis reconciles to GL, TB, income statement and NAV summary" />
+      <div className="fee-controls">
+        <label>Management fee % <EditableNumber value={store.managementFeePct} onCommit={(v) => store.setFee("management", v)} /></label>
+        <span>Total investor fee {fmt(totalGross, true)}</span>
+        <span className={Math.abs(totalGross - glFee) < 1 ? "text-good" : "text-bad"}>GL tie-out {Math.abs(totalGross - glFee) < 1 ? "Matched" : "Exception"}</span>
+      </div>
+      <SimpleRows rows={managementRows.map((row) => ({
+        "Investor Name": row.investorName,
+        "Opening Capital": fmt(row.openingCapital, true),
+        "Capital Contribution": fmt(row.capitalContribution, true),
+        Redemption: fmt(row.redemption, true),
+        "Ending Capital Before Fees": fmt(row.endingCapitalBeforeFees, true),
+        "Fee Basis": row.feeBasisOption,
+        "Fee Basis Amount": fmt(row.feeBasis, true),
+        "Management Fee %": pct(row.managementFeePct),
+        "Gross Management Fee": fmt(row.grossManagementFee, true),
+        "Fee Already Paid": fmt(row.feeAlreadyPaid, true),
+        "Fee Payable": fmt(row.feePayable, true),
+        "Fee Accrued": fmt(row.feeAccrued, true),
+        "Net Capital After Management Fee": fmt(row.netCapitalAfterManagementFee, true),
+      }))} />
+    </section>
+  );
+}
+
+function PerformanceFeeValidationPanel() {
+  const store = useFundStore();
+  const r = useRecalc();
+  const { performanceRows } = investorFeeSchedules(store, r);
+  const priorNav = store.activeScenarioImpact?.before.nav ?? r.investorCapital;
+  const grossReturnPct = priorNav ? (r.netAssets - priorNav) / Math.abs(priorNav) : 0;
+  const benchmarkPct = 0.04;
+  const hurdlePct = store.fundSetup.hurdleRate;
+  const totalEarned = performanceRows.reduce((sum, row) => sum + row.performanceFeeEarned, 0);
+  return (
+    <div className="control-grid">
+      <Metric label="Opening NAV" value={fmt(priorNav, true)} />
+      <Metric label="Closing NAV" value={fmt(r.netAssets, true)} tone="good" />
+      <Metric label="Gross return" value={pct(grossReturnPct)} tone={grossReturnPct > hurdlePct ? "good" : "warn"} />
+      <Metric label="Benchmark / Hurdle" value={`${pct(benchmarkPct)} / ${pct(hurdlePct)}`} />
+      <Metric label="Eligibility" value={totalEarned > 0 ? "Eligible" : "Not Eligible"} tone={totalEarned > 0 ? "good" : "warn"} />
+      <Metric label="Total incentive fee" value={fmt(totalEarned, true)} />
+    </div>
+  );
+}
+
+function PerformanceFeeInvestorLevelView() {
+  const store = useFundStore();
+  const r = useRecalc();
+  const { performanceRows } = investorFeeSchedules(store, r);
+  const totalEarned = performanceRows.reduce((sum, row) => sum + row.performanceFeeEarned, 0);
+  const glFee = r.trialBalance.find((x) => x.account === "Performance fee expense")?.debit ?? 0;
+  return (
+    <section className="panel full">
+      <PanelTitle title="Performance Fee - Investor Level Actual Values" right="Eligibility: benchmark, hurdle, high water mark and crystallization" />
+      <div className="fee-controls">
+        <label>Performance fee % <EditableNumber value={store.performanceFeePct} onCommit={(v) => store.setFee("performance", v)} /></label>
+        <span>Total incentive fee {fmt(totalEarned, true)}</span>
+        <span className={Math.abs(totalEarned - glFee) < 1 ? "text-good" : "text-bad"}>GL tie-out {Math.abs(totalEarned - glFee) < 1 ? "Matched" : "Exception"}</span>
+      </div>
+      <PerformanceFeeValidationPanel />
+      <SimpleRows rows={performanceRows.map((row) => ({
+        "Investor Name": row.investorName,
+        "Opening Capital": fmt(row.openingCapital, true),
+        Subscriptions: fmt(row.subscriptions, true),
+        Redemptions: fmt(row.redemptions, true),
+        "Ending Capital Before Performance Fee": fmt(row.endingCapitalBeforePerformanceFee, true),
+        "Gross Profit / Loss": fmt(row.grossProfitLoss, true),
+        "Benchmark Return %": pct(row.benchmarkReturnPct),
+        "Benchmark Amount": fmt(row.benchmarkAmount, true),
+        "Hurdle Rate %": pct(row.hurdleRatePct),
+        "Hurdle Amount": fmt(row.hurdleAmount, true),
+        "Excess Profit": fmt(row.grossProfitLoss > 0 ? Math.max(row.grossProfitLoss - row.hurdleAmount, 0) : 0, true),
+        "High Water Mark": fmt(row.highWaterMark, true),
+        "Performance Fee %": pct(row.performanceFeePct),
+        "Performance Fee Earned": fmt(row.performanceFeeEarned, true),
+        "Performance Fee Paid": fmt(row.performanceFeePaid, true),
+        "Performance Fee Payable": fmt(row.performanceFeePayable, true),
+        "Equalization Adjustment": fmt(row.equalizationAdjustment, true),
+        "Net Investor Capital After Performance Fee": fmt(row.netInvestorCapitalAfterPerformanceFee, true),
+        Status: row.reason,
+      }))} />
+    </section>
+  );
+}
+
+function InvestmentExitWaterfallView() {
+  const store = useFundStore();
+  const r = useRecalc();
+  const [inputs, setInputs] = useState(defaultWaterfallInputs(r));
+  useEffect(() => {
+    setInputs(defaultWaterfallInputs(r));
+  }, [r.netAssets, r.investorCapital]);
+  const waterfall = waterfallEngine(store, r, inputs);
+  const setInput = (field: keyof typeof inputs, value: number) => setInputs((current) => ({ ...current, [field]: value }));
+  return (
+    <section className="panel full">
+      <PanelTitle title="Investment_Exit_Waterfall" right="ROC, preferred return, GP catch-up and residual carry split" />
+      <div className="form-grid compact">
+        <label><span>Total Exit Proceeds</span><EditableNumber value={inputs.totalExitProceeds} onCommit={(v) => setInput("totalExitProceeds", v)} /></label>
+        <label><span>Total LP Capital Contribution</span><EditableNumber value={inputs.totalLpCapitalContribution} onCommit={(v) => setInput("totalLpCapitalContribution", v)} /></label>
+        <label><span>Total GP Capital Contribution</span><EditableNumber value={inputs.totalGpCapitalContribution} onCommit={(v) => setInput("totalGpCapitalContribution", v)} /></label>
+        <label><span>Preferred Return %</span><EditableNumber value={inputs.preferredReturnPct} onCommit={(v) => setInput("preferredReturnPct", v)} /></label>
+        <label><span>GP Catch-Up %</span><EditableNumber value={inputs.gpCatchUpPct} onCommit={(v) => setInput("gpCatchUpPct", v)} /></label>
+        <label><span>LP Carry Split %</span><EditableNumber value={inputs.lpCarryPct} onCommit={(v) => setInput("lpCarryPct", v)} /></label>
+        <label><span>GP Carry Split %</span><EditableNumber value={inputs.gpCarryPct} onCommit={(v) => setInput("gpCarryPct", v)} /></label>
+      </div>
+      <div className={`balance-banner ${waterfall.controlStatus === "Pass" ? "good" : "bad"}`}>
+        Total Distributed {fmt(waterfall.totalDistributed, true)} = Exit Proceeds {fmt(inputs.totalExitProceeds, true)} - {waterfall.controlStatus}
+      </div>
+      <SimpleRows rows={waterfall.steps.map((step) => ({
+        Step: step.step,
+        "LP Amount": fmt(step.lpAmount, true),
+        "GP Amount": fmt(step.gpAmount, true),
+        "Remaining Proceeds": fmt(step.remainingAfterStep, true),
+      }))} />
+      <SimpleRows rows={waterfall.partnerRows.map((row) => ({
+        "Partner Name": row.partnerName,
+        "Partner Type": row.partnerType,
+        "Capital Contribution": fmt(row.capitalContribution, true),
+        "Ownership %": pct(row.ownershipPct),
+        "ROC Received": fmt(row.rocReceived, true),
+        "Preferred Return Received": fmt(row.preferredReturnReceived, true),
+        "GP Catch-Up Received": fmt(row.gpCatchUpReceived, true),
+        "Residual Split Received": fmt(row.residualSplitReceived, true),
+        "Total Distribution": fmt(row.totalDistribution, true),
+        "Remaining Unreturned Capital": fmt(row.remainingUnreturnedCapital, true),
+        "Final Multiple / MOIC": `${row.moic.toFixed(2)}x`,
+      }))} />
+    </section>
+  );
+}
+
 function DerivativesView() {
   const { derivatives, updateDerivative } = useFundStore();
   return <section className="panel full"><PanelTitle title="OTC Derivatives and MTM" right="MTM is valuation; exposure is counterparty risk after collateral and haircut" /><div className="table-wrap"><table className="data-grid"><thead><tr><th>Type</th><th>Reference</th><th>Notional</th><th>MTM</th><th>Gross Exposure</th><th>Net Exposure</th><th>PFE</th><th>Collateral Posted</th><th>Counterparty Exposure</th><th>ISDA Threshold</th><th>Margin Utilization</th><th>Haircut</th><th>Counterparty</th></tr></thead><tbody>{derivatives.map((d) => {
@@ -1169,7 +1519,7 @@ function BreaksDashboard() {
     <section className="panel full">
       <PanelTitle title="Centralized Breaks Dashboard" right="Assignment, SLA, escalation and resolution workflow" />
       <div className="break-actions"><span>Actions available: manual match, force match, split, merge, write off immaterial, pass adjustment journal, create manual accrual, rerun reconciliation.</span></div>
-      <div className="table-wrap"><table className="data-grid"><thead><tr><th>Break ID</th><th>Type</th><th>Severity</th><th>Aging</th><th>Owner</th><th>NAV Impact</th><th>Root Cause</th><th>Status</th><th>Resolution Notes</th><th>Escalation</th><th>SLA</th><th>Comments</th><th>Workflow Actions</th><th>AI</th></tr></thead><tbody>{breaks.map((b) => <tr key={b.id}><td>{b.id}</td><td>{b.breakType}</td><td><span className={`tag ${b.severity === "High" ? "bad" : b.severity === "Medium" ? "warn" : "good"}`}>{b.severity}</span></td><td>{b.aging}d</td><td><EditableText value={b.owner} onCommit={(v) => updateBreak(b.id, "owner", v)} /></td><td>{fmt(b.navImpact, true)}</td><td>{b.rootCause}</td><td><select className="terminal-select" value={b.status} onChange={(e) => updateBreak(b.id, "status", e.target.value)}><option>Open</option><option>Investigating</option><option>Pending External Party</option><option>Escalated</option><option>Resolved</option><option>Approved</option><option>Closed</option></select></td><td><EditableText value={b.resolutionNotes} onCommit={(v) => updateBreak(b.id, "resolutionNotes", v)} /></td><td>{b.escalationLevel}</td><td>{b.slaHours}h</td><td>{b.comments.join(" | ")}</td><td><div className="inline-actions"><button onClick={() => updateBreak(b.id, "status", "Escalated")}>Escalate</button><button onClick={() => updateBreak(b.id, "status", "Resolved")}>Resolve</button><button onClick={() => updateBreak(b.id, "status", "Approved")}>Approve</button><button onClick={() => updateBreak(b.id, "status", "Open")}>Reopen</button></div></td><td><ExplainButton context={{ tab: "exceptions", title: b.id, summary: b.rootCause, accountingImpact: `Affected accounts depend on ${b.breakType}; unresolved items block clean NAV sign-off.`, navImpact: `Estimated NAV impact ${fmt(b.navImpact, true)} versus materiality threshold.`, recommendedAction: b.severity === "High" ? "Escalate, obtain evidence, and approve resolution before NAV publication." : "Assign owner, document resolution notes, and approve if immaterial.", relatedEntries: ["Break register", "Audit trail", "NAV control checklist"] }} /></td></tr>)}</tbody></table></div>
+      <div className="table-wrap"><table className="data-grid"><thead><tr><th>Break ID</th><th>Type</th><th>Severity</th><th>Aging</th><th>Owner</th><th>NAV Impact</th><th>Root Cause</th><th>Status</th><th>Resolution Notes</th><th>Escalation</th><th>SLA</th><th>Comments</th><th>Workflow Actions</th><th>AI</th></tr></thead><tbody>{breaks.map((b) => <tr key={b.id}><td>{b.id}</td><td>{b.breakType}</td><td><span className={`tag ${b.severity === "Critical" || b.severity === "High" ? "bad" : b.severity === "Medium" ? "warn" : "good"}`}>{b.severity}</span></td><td>{b.aging}d</td><td><EditableText value={b.owner} onCommit={(v) => updateBreak(b.id, "owner", v)} /></td><td>{fmt(b.navImpact, true)}</td><td>{b.rootCause}</td><td><select className="terminal-select" value={b.status} onChange={(e) => updateBreak(b.id, "status", e.target.value)}><option>Open</option><option>Investigating</option><option>Pending External Party</option><option>Escalated</option><option>Resolved</option><option>Approved</option><option>Closed</option></select></td><td><EditableText value={b.resolutionNotes} onCommit={(v) => updateBreak(b.id, "resolutionNotes", v)} /></td><td>{b.escalationLevel}</td><td>{b.slaHours}h</td><td>{b.comments.join(" | ")}</td><td><div className="inline-actions"><button onClick={() => updateBreak(b.id, "status", "Escalated")}>Escalate</button><button onClick={() => updateBreak(b.id, "status", "Resolved")}>Resolve</button><button onClick={() => updateBreak(b.id, "status", "Approved")}>Approve</button><button onClick={() => updateBreak(b.id, "status", "Open")}>Reopen</button></div></td><td><ExplainButton context={{ tab: "exceptions", title: b.id, summary: b.rootCause, accountingImpact: `Affected accounts depend on ${b.breakType}; unresolved items block clean NAV sign-off.`, navImpact: `Estimated NAV impact ${fmt(b.navImpact, true)} versus materiality threshold.`, recommendedAction: b.severity === "Critical" || b.severity === "High" ? "Escalate, obtain evidence, and approve resolution before NAV publication." : "Assign owner, document resolution notes, and approve if immaterial.", relatedEntries: ["Break register", "Audit trail", "NAV control checklist"] }} /></td></tr>)}</tbody></table></div>
     </section>
   );
 }
@@ -1276,6 +1626,91 @@ function buildInstitutionalNavPack(store: FundState, r: ReturnType<typeof useRec
       "Expense Allocation": expenses, "Total Deductions": mgmt + perf + expenses, "Ending NAV": i.capital - mgmt - perf - expenses,
     };
   });
+  const feeSchedules = investorFeeSchedules(store, r);
+  const exitWaterfall = waterfallEngine(store, r);
+  const mgmtFeeRows = feeSchedules.managementRows.map((row) => ({
+    "Investor Name": row.investorName,
+    "Opening Capital": row.openingCapital,
+    "Capital Contribution": row.capitalContribution,
+    Redemption: row.redemption,
+    "Ending Capital Before Fees": row.endingCapitalBeforeFees,
+    "Fee Basis": row.feeBasisOption,
+    "Fee Basis Amount": row.feeBasis,
+    "Management Fee %": row.managementFeePct,
+    "Gross Management Fee": row.grossManagementFee,
+    "Fee Already Paid": row.feeAlreadyPaid,
+    "Fee Payable": row.feePayable,
+    "Fee Accrued": row.feeAccrued,
+    "Net Capital After Management Fee": row.netCapitalAfterManagementFee,
+  }));
+  const perfFeeRows = feeSchedules.performanceRows.map((row) => ({
+    "Investor Name": row.investorName,
+    "Opening Capital": row.openingCapital,
+    Subscriptions: row.subscriptions,
+    Redemptions: row.redemptions,
+    "Ending Capital Before Performance Fee": row.endingCapitalBeforePerformanceFee,
+    "Gross Profit / Loss": row.grossProfitLoss,
+    "Investor Return %": row.investorReturnPct,
+    "Benchmark Return %": row.benchmarkReturnPct,
+    "Benchmark Amount": row.benchmarkAmount,
+    "Hurdle Rate %": row.hurdleRatePct,
+    "Hurdle Amount": row.hurdleAmount,
+    "High Water Mark": row.highWaterMark,
+    "Performance Fee %": row.performanceFeePct,
+    "Performance Fee Earned": row.performanceFeeEarned,
+    "Performance Fee Paid": row.performanceFeePaid,
+    "Performance Fee Payable": row.performanceFeePayable,
+    "Equalization Adjustment": row.equalizationAdjustment,
+    "Net Investor Capital After Performance Fee": row.netInvestorCapitalAfterPerformanceFee,
+    Eligibility: row.eligibility,
+    Reason: row.reason,
+  }));
+  const waterfallStepRows = exitWaterfall.steps.map((step) => ({
+    Step: step.step,
+    "LP Amount": step.lpAmount,
+    "GP Amount": step.gpAmount,
+    "Remaining Proceeds": step.remainingAfterStep,
+  }));
+  const partnerWaterfallRows = exitWaterfall.partnerRows.map((row) => ({
+    "Partner Name": row.partnerName,
+    "Partner Type": row.partnerType,
+    "Capital Contribution": row.capitalContribution,
+    "Ownership %": row.ownershipPct,
+    "ROC Received": row.rocReceived,
+    "Preferred Return Received": row.preferredReturnReceived,
+    "GP Catch-Up Received": row.gpCatchUpReceived,
+    "Residual Split Received": row.residualSplitReceived,
+    "Total Distribution": row.totalDistribution,
+    "Remaining Unreturned Capital": row.remainingUnreturnedCapital,
+    MOIC: row.moic,
+  }));
+  const investorCapitalStatementRows = store.investors.map((i) => {
+    const mgmt = feeSchedules.managementRows.find((row) => row.investor.id === i.id);
+    const perf = feeSchedules.performanceRows.find((row) => row.investor.id === i.id);
+    const waterfall = exitWaterfall.partnerRows.find((row) => row.partnerName === i.name);
+    const activity = activityTotals(store, i.id);
+    const allocation = r.investorCapital ? i.capital / r.investorCapital : 0;
+    const profitAllocation = allocation * Math.max(feeSchedules.profitBeforeFees, 0);
+    const lossAllocation = allocation * Math.min(feeSchedules.profitBeforeFees, 0);
+    const expenseAllocation = allocation * r.adminExpenses;
+    return {
+      Investor: i.name,
+      "Opening Capital": mgmt?.openingCapital ?? i.capital,
+      Subscriptions: activity.subscriptions,
+      Redemptions: activity.redemptions,
+      "Profit Allocation": profitAllocation,
+      "Loss Allocation": lossAllocation,
+      "Management Fee Paid": mgmt?.grossManagementFee ?? 0,
+      "Performance Fee Paid": perf?.performanceFeeEarned ?? 0,
+      "Expense Allocation": expenseAllocation,
+      "Waterfall Distribution": waterfall?.totalDistribution ?? 0,
+      "Ending Capital": i.capital + profitAllocation + lossAllocation - (mgmt?.grossManagementFee ?? 0) - (perf?.performanceFeeEarned ?? 0) - expenseAllocation,
+    };
+  });
+  const navBridgeRows = navMovementBridgeRows(store, r);
+  const totalInvestorMgmtFees = mgmtFeeRows.reduce((sum, row) => sum + Number(row["Gross Management Fee"]), 0);
+  const totalInvestorPerfFees = perfFeeRows.reduce((sum, row) => sum + Number(row["Performance Fee Earned"]), 0);
+  const investorCapitalStatementTotal = investorCapitalStatementRows.reduce((sum, row) => sum + Number(row["Ending Capital"]), 0);
   const formulaRows: XlsxCell[][] = [
     ["36_NAV_Calculation_Working"],
     ["Generated", new Date().toLocaleString(), "Source", "Live simulator state"],
@@ -1352,6 +1787,43 @@ function buildInstitutionalNavPack(store: FundState, r: ReturnType<typeof useRec
     { name: "33_Investor_Capital_Statement", rows: objectRows("33_Investor_Capital_Statement", investorRows.map((i) => ({ Investor: i.Investor, "Opening Capital": Number(i.Capital) - Number(i["Ending NAV"]) * 0.02, Subscriptions: Number(i.Capital) * 0.01, Redemptions: 0, "P&L Allocation": Number(i["Ending NAV"]) - Number(i.Capital), "Ending NAV": i["Ending NAV"] }))) },
     { name: "34_Share_Register", rows: objectRows("34_Share_Register", investorRows.map((i) => ({ Investor: i.Investor, Class: i.Class, Shares: i.Shares, "NAV/share": r.navPerShare, "Capital Value": Number(i.Shares) * r.navPerShare }))) },
     { name: "35_Investor_Fee_Breakdown", rows: objectRows("35_Investor_Fee_Breakdown", investorRows.map((i) => ({ Investor: i.Investor, "Management Fee": i["Management Fee"], "Performance Fee": i["Performance Fee"], "Admin Expense Allocation": i["Expense Allocation"], "Total Fees/Deductions": i["Total Deductions"] }))) },
+    { name: "Mgmt_Fee_Investor_Level", rows: objectRows("Management_Fee_Investor_Level", mgmtFeeRows, "Investor-level management fee schedule tied to GL/TB/NAV") },
+    { name: "Perf_Fee_Investor_Level", rows: objectRows("Performance_Fee_Investor_Level", perfFeeRows, "Investor-level incentive fee schedule with eligibility controls") },
+    { name: "Perf_Fee_Validation", rows: objectRows("Performance_Fee_Validation", [
+      { Scope: "Fund-Level", Metric: "Opening NAV", Value: priorNav, Flag: "Control input" },
+      { Scope: "Fund-Level", Metric: "Closing NAV", Value: r.netAssets, Flag: "Live NAV" },
+      { Scope: "Fund-Level", Metric: "Gross Return %", Value: priorNav ? (r.netAssets - priorNav) / Math.abs(priorNav) : 0, Flag: "Return test" },
+      { Scope: "Fund-Level", Metric: "Benchmark %", Value: 0.04, Flag: "Benchmark" },
+      { Scope: "Fund-Level", Metric: "Hurdle %", Value: store.fundSetup.hurdleRate, Flag: "Hurdle" },
+      { Scope: "Fund-Level", Metric: "Performance Fee Eligibility", Value: totalInvestorPerfFees > 0 ? "Eligible" : "Not Eligible", Flag: totalInvestorPerfFees > 0 ? "Eligible" : "Below Hurdle / HWM" },
+      { Scope: "Fund-Level", Metric: "Total Performance Fee Earned", Value: totalInvestorPerfFees, Flag: "GL tie-out" },
+      ...perfFeeRows.map((row) => ({ Scope: "Investor-Level", Metric: String(row["Investor Name"]), Value: Number(row["Performance Fee Earned"]), Flag: String(row.Reason) })),
+    ]) },
+    { name: "Investment_Exit_Waterfall", rows: objectRows("Investment_Exit_Waterfall", [
+      { Input: "Total Exit Proceeds", Value: exitWaterfall.inputs.totalExitProceeds, Notes: "User-editable in waterfall screen" },
+      { Input: "Total LP Capital Contribution", Value: exitWaterfall.inputs.totalLpCapitalContribution, Notes: "LP capital base" },
+      { Input: "Total GP Capital Contribution", Value: exitWaterfall.inputs.totalGpCapitalContribution, Notes: "GP co-invest" },
+      { Input: "Preferred Return %", Value: exitWaterfall.inputs.preferredReturnPct, Notes: "LP pref hurdle" },
+      { Input: "GP Catch-Up %", Value: exitWaterfall.inputs.gpCatchUpPct, Notes: "Catch-up on paid preferred return" },
+      { Input: "LP Carry Split %", Value: exitWaterfall.inputs.lpCarryPct, Notes: "Residual split to LPs" },
+      { Input: "GP Carry Split %", Value: exitWaterfall.inputs.gpCarryPct, Notes: "Residual split to GP" },
+      ...waterfallStepRows.map((row) => ({ Input: row.Step, Value: Number(row["LP Amount"]) + Number(row["GP Amount"]), Notes: `Remaining proceeds ${Number(row["Remaining Proceeds"]).toLocaleString("en-US")}` })),
+    ], "Four-step waterfall: ROC, preferred return, GP catch-up, residual split") },
+    { name: "Partner_Waterfall_Distribution", rows: objectRows("Partner_Waterfall_Distribution", partnerWaterfallRows, "Partner-level LP/GP waterfall output") },
+    { name: "Investor_Capital_Statement", rows: objectRows("Investor_Capital_Statement", investorCapitalStatementRows, "Investor capital statement with fees and waterfall distribution") },
+    { name: "NAV_Movement_Bridge", rows: objectRows("NAV_Movement_Bridge", navBridgeRows, "Prior NAV to current NAV movement explanation") },
+    { name: "Control_Checks", rows: objectRows("Control_Checks", [
+      { Check: "TB Balanced?", Result: tbBalanced ? "Pass" : "Fail", Difference: tbDebit - tbCredit },
+      { Check: "Total Assets - Total Liabilities = NAV?", Result: Math.abs(r.grossAssets - r.liabilities - r.netAssets) < 1 ? "Pass" : "Fail", Difference: r.grossAssets - r.liabilities - r.netAssets },
+      { Check: "Investor Capital = NAV?", Result: Math.abs(r.investorCapital - r.netAssets) / Math.max(Math.abs(r.netAssets), 1) < 0.05 ? "Review" : "Exception", Difference: r.investorCapital - r.netAssets },
+      { Check: "Total Fees = GL Fee Accounts?", Result: Math.abs(totalInvestorMgmtFees - r.managementFee) < 1 && Math.abs(totalInvestorPerfFees - r.performanceFee) < 1 ? "Pass" : "Fail", Difference: totalInvestorMgmtFees + totalInvestorPerfFees - r.managementFee - r.performanceFee },
+      { Check: "Total Waterfall Distributed = Exit Proceeds?", Result: exitWaterfall.controlStatus, Difference: exitWaterfall.totalDistributed - exitWaterfall.inputs.totalExitProceeds },
+      { Check: "Investor Capital Statement = NAV?", Result: Math.abs(investorCapitalStatementTotal - r.netAssets) / Math.max(Math.abs(r.netAssets), 1) < 0.1 ? "Review" : "Exception", Difference: investorCapitalStatementTotal - r.netAssets },
+      { Check: "Outstanding Shares match Capital Activity?", Result: r.sharesOutstanding > 0 ? "Pass" : "Fail", Difference: r.sharesOutstanding },
+      { Check: "All Recons Cleared?", Result: pendingRecons ? "Fail" : "Pass", Difference: pendingRecons },
+      { Check: "Missing Prices?", Result: missingPrices.length ? "Fail" : "Pass", Difference: missingPrices.length },
+      { Check: "Missing FX?", Result: store.fxRates.length ? "Pass" : "Fail", Difference: store.fxRates.length },
+    ], "Institutional NAV control checklist") },
     { name: "36_NAV_Calculation_Working", rows: formulaRows },
     { name: "37_NAV_Summary", rows: objectRows("37_NAV_Summary", [
       { Item: "Total Assets", Amount: { formula: "'36_NAV_Calculation_Working'!B5", result: r.grossAssets } as unknown as number },
@@ -1802,8 +2274,11 @@ function ModuleContent() {
         {active === "pl" && <Statements kind="pl" />}
         {active === "balanceSheet" && <Statements kind="balance" />}
         {active === "nav" && <Statements kind="nav" />}
-        {(active === "capital" || active === "subsReds" || active === "investorReporting" || active === "equalization" || active === "waterfall") && <><FileUploadPanel module="capital" title="Investor Capital Activity Upload" /><ManualSubmitBar label="Investor capital workflow" fields="Capital, Shares, High Water Mark" /><InvestorView /></>}
-        {(active === "mgmtFees" || active === "perfFees" || active === "expenses") && <><ManualSubmitBar label="Fee amendment workflow" fields="Management Fee %, Performance Fee %" /><InvestorView fees /></>}
+        {(active === "capital" || active === "subsReds" || active === "investorReporting" || active === "equalization") && <><FileUploadPanel module="capital" title="Investor Capital Activity Upload" /><ManualSubmitBar label="Investor capital workflow" fields="Capital, Shares, High Water Mark" /><InvestorView /></>}
+        {active === "mgmtFees" && <><ManualSubmitBar label="Management fee workflow" fields="Management Fee %, Fee Basis, Paid Fee allocation" /><ManagementFeeInvestorLevelView /></>}
+        {active === "perfFees" && <><ManualSubmitBar label="Performance fee workflow" fields="Performance Fee %, Hurdle, HWM, Equalization" /><PerformanceFeeInvestorLevelView /></>}
+        {active === "waterfall" && <><ManualSubmitBar label="Investment exit waterfall workflow" fields="Exit Proceeds, Capital Contributions, Preferred Return, GP Catch-Up, Carry Split" /><InvestmentExitWaterfallView /></>}
+        {active === "expenses" && <><ManualSubmitBar label="Fee amendment workflow" fields="Management Fee %, Performance Fee %" /><InvestorView fees /></>}
         {(active === "otc" || active === "mtm") && <><ManualSubmitBar label="Derivative MTM workflow" fields="MTM, Accrued Interest, Collateral" /><DerivativesView /></>}
         {active === "dividends" && <AccrualsView kind="Dividend" />}
         {active === "coupons" && <AccrualsView kind="Coupon" />}

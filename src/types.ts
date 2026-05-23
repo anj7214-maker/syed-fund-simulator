@@ -122,7 +122,7 @@ export interface PositionReconRow {
 export interface BreakItem {
   id: string;
   breakType: "Pricing" | "FX" | "Cash" | "Position" | "Corporate Action" | "Trade Settlement" | "OTC" | "GL Imbalance" | "NAV Variance";
-  severity: "High" | "Medium" | "Low";
+  severity: "Critical" | "High" | "Medium" | "Low";
   aging: number;
   owner: string;
   navImpact: number;
@@ -328,7 +328,7 @@ export interface AuditEvent {
 
 export interface ExceptionItem {
   id: string;
-  severity: "High" | "Medium" | "Low";
+  severity: "Critical" | "High" | "Medium" | "Low";
   module: string;
   message: string;
   owner: string;

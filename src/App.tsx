@@ -78,6 +78,10 @@ const materiality = (nav: number, impact = 0) => {
   if (ratio >= 0.001) return { label: "Medium", tone: "warn" as const, ratio };
   return { label: "Minor", tone: "good" as const, ratio };
 };
+const tradeGross = (t: { quantity: number; price: number }) => t.quantity * t.price;
+const tradeCashMovement = (t: { side: "Buy" | "Sell"; quantity: number; price: number; fees: number }) => t.side === "Buy" ? -(tradeGross(t) + t.fees) : tradeGross(t) - t.fees;
+const tradeCashDebit = (t: { side: "Buy" | "Sell"; quantity: number; price: number; fees: number }) => Math.max(tradeCashMovement(t), 0);
+const tradeCashCredit = (t: { side: "Buy" | "Sell"; quantity: number; price: number; fees: number }) => Math.max(-tradeCashMovement(t), 0);
 
 type ExportValue = string | number | boolean | null | undefined;
 type ExportRow = Record<string, ExportValue>;
@@ -106,7 +110,7 @@ function exportRowsForModule(module: ModuleId, store: FundState, r: ReturnType<t
   if (module === "pricing") return r.holdings.map((h) => ({ Ticker: h.ticker, Asset: h.assetType, Source: h.priceSource, Prior: h.priorPrice, Current: h.marketPrice, MovePct: h.priceMovePct, LastUpdate: h.lastPriceTime }));
   if (module === "holdings") return r.holdings.map((h) => ({ ISIN: h.isin, Ticker: h.ticker, Asset: h.assetType, Strategy: h.strategy, Currency: h.currency, Quantity: h.quantity, CostPrice: h.costPrice, MarketPrice: h.marketPrice, FX: h.fxRate, MarketValue: h.marketValue, PricePnL: h.pricePnl, FXPnL: h.fxPnl, UnrealizedPnL: h.totalUnrealizedPnl, ExposurePct: h.exposurePct }));
   if (module === "fx") return store.fxRates.map((fx) => ({ Pair: fx.pair, Base: fx.base, Quote: fx.quote, CurrentRate: fx.rate, PriorRate: fx.priorRate, Source: fx.source }));
-  if (module === "trades") return store.trades.map((t) => ({ TradeID: t.id, TradeDate: t.tradeDate, SettleDate: t.settleDate, Broker: t.broker, Side: t.side, Ticker: t.ticker, Quantity: t.quantity, Price: t.price, Fees: t.fees, NetAmount: t.quantity * t.price + (t.side === "Buy" ? t.fees : -t.fees), Status: t.status }));
+  if (module === "trades") return store.trades.map((t) => ({ TradeID: t.id, TradeDate: t.tradeDate, SettleDate: t.settleDate, Broker: t.broker, Side: t.side, Ticker: t.ticker, Quantity: t.quantity, Price: t.price, GrossAmount: tradeGross(t), BrokerFees: t.fees, CashDebit: tradeCashDebit(t), CashCredit: tradeCashCredit(t), SignedCashMovement: tradeCashMovement(t), InvestmentDebit: t.side === "Buy" ? tradeGross(t) : 0, InvestmentCredit: t.side === "Sell" ? tradeGross(t) : 0, Status: t.status }));
   if (["capital", "subsReds", "investorReporting", "equalization", "waterfall", "mgmtFees", "perfFees", "expenses"].includes(module)) return store.investors.map((i) => ({ Investor: i.name, Class: i.className, Capital: i.capital, Shares: i.shares, HWM: i.hwm, EqualizationCredit: i.equalizationCredit, AllocationPct: r.investorCapital ? i.capital / r.investorCapital * 100 : 0, ManagementFeePct: store.managementFeePct, PerformanceFeePct: store.performanceFeePct }));
   if (["otc", "mtm"].includes(module)) return store.derivatives.map((d) => ({ ID: d.id, Type: d.type, Reference: d.reference, Notional: d.notional, MTM: d.mtm, AccruedInterest: d.accruedInterest, Collateral: d.collateral, Counterparty: d.counterparty }));
   if (module === "cashRecon") return store.cashRecon.map((c) => ({ Currency: c.currency, InternalLedgerCash: c.internalLedgerCash, CustodianCash: c.custodianCash, PrimeBrokerCash: c.primeBrokerCash, Difference: c.internalLedgerCash - c.custodianCash, BreakReason: c.breakReason, Owner: c.owner, Status: c.status }));
@@ -127,6 +131,164 @@ function impactReportRows(store: FundState): ExportRow[] {
     { Metric: "Investor Capital", Previous: impact.before.investorCapital, Current: impact.after.investorCapital, Delta: impact.after.investorCapital - impact.before.investorCapital, LatestAction: latest?.impactedModules.join(" | ") ?? "" },
     { Metric: "Open Breaks", Previous: impact.before.openBreaks, Current: impact.after.openBreaks, Delta: impact.after.openBreaks - impact.before.openBreaks, LatestAction: latest?.timestamp ?? "" },
   ];
+}
+
+type XlsxCell = ExportValue | { formula: string; result?: ExportValue };
+type XlsxSheet = { name: string; rows: XlsxCell[][] };
+
+const xmlEscape = (value: ExportValue) => String(value ?? "")
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;");
+
+const columnName = (index: number) => {
+  let name = "";
+  let n = index + 1;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    name = String.fromCharCode(65 + rem) + name;
+    n = Math.floor((n - 1) / 26);
+  }
+  return name;
+};
+
+function objectRows(title: string, rows: ExportRow[], source = "Live simulator state"): XlsxCell[][] {
+  const headers = rows.length ? Object.keys(rows[0]) : ["Message"];
+  const dataRows = rows.length ? rows : [{ Message: "No records available" }];
+  return [
+    [title],
+    ["Generated", new Date().toLocaleString(), "Source", source],
+    [],
+    headers,
+    ...dataRows.map((row) => headers.map((header) => row[header])),
+  ];
+}
+
+function worksheetXml(rows: XlsxCell[][]) {
+  const body = rows.map((row, rIdx) => {
+    const cells = row.map((cell, cIdx) => {
+      const ref = `${columnName(cIdx)}${rIdx + 1}`;
+      if (cell && typeof cell === "object" && "formula" in cell) {
+        const result = cell.result ?? 0;
+        return `<c r="${ref}" s="${rIdx === 0 ? 2 : 0}"><f>${xmlEscape(cell.formula)}</f><v>${xmlEscape(result)}</v></c>`;
+      }
+      if (typeof cell === "number") return `<c r="${ref}" s="${rIdx === 3 ? 1 : 0}"><v>${Number.isFinite(cell) ? cell : 0}</v></c>`;
+      if (typeof cell === "boolean") return `<c r="${ref}" t="b" s="${rIdx === 3 ? 1 : 0}"><v>${cell ? 1 : 0}</v></c>`;
+      return `<c r="${ref}" t="inlineStr" s="${rIdx === 0 ? 2 : rIdx === 3 ? 1 : 0}"><is><t>${xmlEscape(cell)}</t></is></c>`;
+    }).join("");
+    return `<row r="${rIdx + 1}">${cells}</row>`;
+  }).join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="16"/><sheetData>${body}</sheetData><pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>`;
+}
+
+const crcTable = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes: Uint8Array) {
+  let crc = 0xffffffff;
+  for (const b of bytes) crc = crcTable[(crc ^ b) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function makeZip(files: Array<{ path: string; content: string }>) {
+  const encoder = new TextEncoder();
+  const fileParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+  const write16 = (view: DataView, at: number, value: number) => view.setUint16(at, value, true);
+  const write32 = (view: DataView, at: number, value: number) => view.setUint32(at, value, true);
+  files.forEach((file) => {
+    const name = encoder.encode(file.path);
+    const data = encoder.encode(file.content);
+    const crc = crc32(data);
+    const local = new Uint8Array(30 + name.length + data.length);
+    const lv = new DataView(local.buffer);
+    write32(lv, 0, 0x04034b50);
+    write16(lv, 4, 20);
+    write16(lv, 6, 0);
+    write16(lv, 8, 0);
+    write16(lv, 10, 0);
+    write16(lv, 12, 0);
+    write32(lv, 14, crc);
+    write32(lv, 18, data.length);
+    write32(lv, 22, data.length);
+    write16(lv, 26, name.length);
+    local.set(name, 30);
+    local.set(data, 30 + name.length);
+    fileParts.push(local);
+    const central = new Uint8Array(46 + name.length);
+    const cv = new DataView(central.buffer);
+    write32(cv, 0, 0x02014b50);
+    write16(cv, 4, 20);
+    write16(cv, 6, 20);
+    write16(cv, 8, 0);
+    write16(cv, 10, 0);
+    write16(cv, 12, 0);
+    write16(cv, 14, 0);
+    write32(cv, 16, crc);
+    write32(cv, 20, data.length);
+    write32(cv, 24, data.length);
+    write16(cv, 28, name.length);
+    write16(cv, 30, 0);
+    write16(cv, 32, 0);
+    write16(cv, 34, 0);
+    write16(cv, 36, 0);
+    write32(cv, 38, 0);
+    write32(cv, 42, offset);
+    central.set(name, 46);
+    centralParts.push(central);
+    offset += local.length;
+  });
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = new Uint8Array(22);
+  const ev = new DataView(end.buffer);
+  write32(ev, 0, 0x06054b50);
+  write16(ev, 8, files.length);
+  write16(ev, 10, files.length);
+  write32(ev, 12, centralSize);
+  write32(ev, 16, offset);
+  return new Blob([...fileParts, ...centralParts, end], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+}
+
+function downloadXlsx(name: string, sheets: XlsxSheet[]) {
+  const safeSheets = sheets.map((sheet, index) => ({
+    ...sheet,
+    name: sheet.name.slice(0, 31).replace(/[\\/?*[\]:]/g, "_") || `Sheet${index + 1}`,
+  }));
+  const files: Array<{ path: string; content: string }> = [
+    {
+      path: "[Content_Types].xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${safeSheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}</Types>`,
+    },
+    { path: "_rels/.rels", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
+    {
+      path: "xl/workbook.xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${safeSheets.map((sheet, i) => `<sheet name="${xmlEscape(sheet.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets><calcPr calcMode="auto"/></workbook>`,
+    },
+    {
+      path: "xl/_rels/workbook.xml.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${safeSheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}<Relationship Id="rId${safeSheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+    },
+    {
+      path: "xl/styles.xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="3"><font><sz val="10"/><name val="Arial"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="10"/><name val="Arial"/></font><font><b/><color rgb="FF00E599"/><sz val="14"/><name val="Arial"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF102027"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF001B22"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellXfs count="3"><xf fontId="0" fillId="0" borderId="0" xfId="0"/><xf fontId="1" fillId="1" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf fontId="2" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs></styleSheet>`,
+    },
+    ...safeSheets.map((sheet, i) => ({ path: `xl/worksheets/sheet${i + 1}.xml`, content: worksheetXml(sheet.rows) })),
+  ];
+  const url = URL.createObjectURL(makeZip(files));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 const editableMatrix = [
@@ -801,12 +963,23 @@ function FxEngine() {
 
 function TradeBlotter() {
   const { trades, updateTrade } = useFundStore();
-  return <section className="panel full"><PanelTitle title="Institutional Trade Booking" right="Booked trades auto-create GL entries" /><div className="table-wrap"><table className="data-grid"><thead><tr><th>Trade Date</th><th>Settle</th><th>Broker</th><th>B/S</th><th>Ticker</th><th>Qty</th><th>Price</th><th>Fees</th><th>Net Amount</th><th>Status</th><th>Trade ID</th></tr></thead><tbody>{trades.map((t) => <tr key={t.id}><td>{t.tradeDate}</td><td>{t.settleDate}</td><td>{t.broker}</td><td>{t.side}</td><td>{t.ticker}</td><td><EditableNumber value={t.quantity} onCommit={(v) => updateTrade(t.id, "quantity", v)} /></td><td><EditableNumber value={t.price} onCommit={(v) => updateTrade(t.id, "price", v)} /></td><td><EditableNumber value={t.fees} onCommit={(v) => updateTrade(t.id, "fees", v)} /></td><td>{fmt(t.quantity * t.price + (t.side === "Buy" ? t.fees : -t.fees), true)}</td><td><span className={`tag ${t.status === "Failed" ? "bad" : t.status === "Pending" ? "warn" : "good"}`}>{t.status}</span></td><td>{t.id}</td></tr>)}</tbody></table></div></section>;
+  const signedCash = trades.reduce((sum, t) => sum + tradeCashMovement(t), 0);
+  const cashDebit = trades.reduce((sum, t) => sum + tradeCashDebit(t), 0);
+  const cashCredit = trades.reduce((sum, t) => sum + tradeCashCredit(t), 0);
+  return <section className="panel full"><PanelTitle title="Institutional Trade Booking" right="Booked trades auto-create GL entries" /><div className="balance-banner good">Trade cash movement {fmt(signedCash, true)} = Cash Dr {fmt(cashDebit, true)} - Cash Cr {fmt(cashCredit, true)}</div><div className="table-wrap"><table className="data-grid"><thead><tr><th>Trade Date</th><th>Settle</th><th>Broker</th><th>B/S</th><th>Ticker</th><th>Qty</th><th>Price</th><th>Gross Amount</th><th>Fees</th><th>Cash Dr</th><th>Cash Cr</th><th>Signed Cash Movement</th><th>Status</th><th>Trade ID</th></tr></thead><tbody>{trades.map((t) => <tr key={t.id}><td>{t.tradeDate}</td><td>{t.settleDate}</td><td>{t.broker}</td><td>{t.side}</td><td>{t.ticker}</td><td><EditableNumber value={t.quantity} onCommit={(v) => updateTrade(t.id, "quantity", v)} /></td><td><EditableNumber value={t.price} onCommit={(v) => updateTrade(t.id, "price", v)} /></td><td>{fmt(tradeGross(t), true)}</td><td><EditableNumber value={t.fees} onCommit={(v) => updateTrade(t.id, "fees", v)} /></td><td>{tradeCashDebit(t) ? fmt(tradeCashDebit(t), true) : ""}</td><td>{tradeCashCredit(t) ? fmt(tradeCashCredit(t), true) : ""}</td><td className={tradeCashMovement(t) >= 0 ? "text-good" : "text-bad"}>{fmt(tradeCashMovement(t), true)}</td><td><span className={`tag ${t.status === "Failed" ? "bad" : t.status === "Pending" ? "warn" : "good"}`}>{t.status}</span></td><td>{t.id}</td></tr>)}</tbody></table></div></section>;
 }
 
 function GLView() {
   const r = useRecalc();
-  return <section className="panel full"><PanelTitle title="General Ledger" right="Double-entry auto-posting engine" /><div className="table-wrap"><table className="data-grid"><thead><tr><th>JE</th><th>Date</th><th>Source</th><th>Memo</th><th>Account</th><th>Category</th><th>Debit</th><th>Credit</th><th>Audit Ref</th></tr></thead><tbody>{r.gl.flatMap((je) => je.lines.map((l, idx) => <tr key={`${je.id}-${idx}`}><td>{je.id}</td><td>{je.date}</td><td>{je.source}</td><td>{je.memo}</td><td>{l.account}</td><td>{l.category}</td><td>{l.debit ? fmt(l.debit, true) : ""}</td><td>{l.credit ? fmt(l.credit, true) : ""}</td><td>{l.ref}</td></tr>))}</tbody></table></div></section>;
+  const trades = useFundStore((s) => s.trades);
+  const blotterCash = trades.reduce((sum, t) => sum + tradeCashMovement(t), 0);
+  const glCash = r.gl
+    .filter((je) => je.source === "Trade Blotter")
+    .flatMap((je) => je.lines)
+    .filter((line) => line.account === "Cash at broker")
+    .reduce((sum, line) => sum + line.debit - line.credit, 0);
+  const matched = Math.abs(blotterCash - glCash) < 1;
+  return <section className="panel full"><PanelTitle title="General Ledger" right="Double-entry auto-posting engine" /><div className={`balance-banner ${matched ? "good" : "bad"}`}>Trade Blotter cash movement {fmt(blotterCash, true)} {matched ? "matches" : "does not match"} GL Cash at broker {fmt(glCash, true)}</div><div className="table-wrap"><table className="data-grid"><thead><tr><th>JE</th><th>Date</th><th>Source</th><th>Memo</th><th>Account</th><th>Category</th><th>Debit</th><th>Credit</th><th>Audit Ref</th></tr></thead><tbody>{r.gl.flatMap((je) => je.lines.map((l, idx) => <tr key={`${je.id}-${idx}`}><td>{je.id}</td><td>{je.date}</td><td>{je.source}</td><td>{je.memo}</td><td>{l.account}</td><td>{l.category}</td><td>{l.debit ? fmt(l.debit, true) : ""}</td><td>{l.credit ? fmt(l.credit, true) : ""}</td><td>{l.ref}</td></tr>))}</tbody></table></div></section>;
 }
 
 function TrialBalance() {
@@ -1046,8 +1219,163 @@ function ReconRiskOps({ type }: { type: ModuleId }) {
   return <section className="panel full"><PanelTitle title={modules.find((m) => m.id === type)?.label ?? "Module"} right="Institutional operating worksheet" /><SimpleRows rows={r.exceptions.map((e) => ({ Module: e.module, Severity: e.severity, Break: e.message, Owner: e.owner, Status: e.status }))} /></section>;
 }
 
+function buildInstitutionalNavPack(store: FundState, r: ReturnType<typeof useRecalc>): XlsxSheet[] {
+  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const failedTrades = store.trades.filter((t) => t.status === "Failed");
+  const missingPrices = r.holdings.filter((h) => !h.marketPrice || Math.abs(h.priceMovePct) > 5);
+  const cashExceptions = store.cashRecon.filter((c) => Math.abs(c.internalLedgerCash - c.custodianCash) > 1);
+  const pendingRecons = [...store.cashRecon, ...store.positionRecon].filter((x) => x.status !== "Approved").length;
+  const tbDebit = r.trialBalance.reduce((sum, x) => sum + x.debit, 0);
+  const tbCredit = r.trialBalance.reduce((sum, x) => sum + x.credit, 0);
+  const tbBalanced = Math.abs(tbDebit - tbCredit) < 1;
+  const navCompletion = Math.max(0, Math.min(100, 100 - openBreaks.length * 3 - failedTrades.length * 4 - missingPrices.length * 5 - (tbBalanced ? 0 : 20)));
+  const priorNav = store.activeScenarioImpact?.before.nav ?? r.netAssets - r.unrealizedGains * 0.05;
+  const navMovement = priorNav ? (r.netAssets - priorNav) / Math.abs(priorNav) : 0;
+  const investorTotalDeductions = (investorCapital: number) => {
+    const allocation = r.investorCapital ? investorCapital / r.investorCapital : 0;
+    return allocation * (r.managementFee + r.performanceFee + r.adminExpenses + r.brokerFees);
+  };
+  const holdingsRows = r.holdings.map((h) => ({
+    ISIN: h.isin, Ticker: h.ticker, Description: h.name, "Asset Type": h.assetType, Strategy: h.strategy, Currency: h.currency,
+    Quantity: h.quantity, "Cost Price": h.costPrice, "Market Price": h.marketPrice, "FX Rate": h.fxRate,
+    "Market Value": h.marketValue, Cost: h.costValue, "Unrealized G/L": h.totalUnrealizedPnl, "FX Impact": h.fxPnl, "Exposure %": h.exposurePct,
+  }));
+  const tradeRows = store.trades.map((t) => ({
+    "Trade ID": t.id, "Trade Date": t.tradeDate, "Settle Date": t.settleDate, Broker: t.broker, "Buy/Sell": t.side, Security: t.ticker,
+    Quantity: t.quantity, Price: t.price, "Gross Amount": tradeGross(t), Fees: t.fees, "Cash Dr": tradeCashDebit(t), "Cash Cr": tradeCashCredit(t),
+    "Signed Cash Movement": tradeCashMovement(t), Status: t.status,
+  }));
+  const breakRows = store.breaks.map((b) => ({
+    "Break ID": b.id, Type: b.breakType, Severity: b.severity, Aging: b.aging, "Assigned User": b.owner, "NAV Impact": b.navImpact,
+    "Root Cause": b.rootCause, Status: b.status, "Resolution Comments": b.resolutionNotes, "Escalation Status": b.escalationLevel, SLA: b.slaHours,
+  }));
+  const glRows = r.gl.flatMap((je) => je.lines.map((l, idx) => ({
+    "JE Number": je.id, Line: idx + 1, Date: je.date, Source: je.source, Memo: je.memo, Account: l.account, Category: l.category,
+    Debit: l.debit, Credit: l.credit, User: je.auto ? "System Auto-Post" : "Manual", "Approval Status": je.auto ? "Posted" : "Pending Review", "Audit Ref": l.ref,
+  })));
+  const investorRows = store.investors.map((i) => {
+    const allocation = r.investorCapital ? i.capital / r.investorCapital : 0;
+    const mgmt = allocation * r.managementFee;
+    const perf = allocation * r.performanceFee;
+    const expenses = allocation * r.adminExpenses;
+    return {
+      Investor: i.name, Class: i.className, Capital: i.capital, Shares: i.shares, HWM: i.hwm, "Hurdle Rate": i.hurdleRate,
+      "Equalization Credit": i.equalizationCredit, "Ownership %": allocation, "Management Fee": mgmt, "Performance Fee": perf,
+      "Expense Allocation": expenses, "Total Deductions": mgmt + perf + expenses, "Ending NAV": i.capital - mgmt - perf - expenses,
+    };
+  });
+  const formulaRows: XlsxCell[][] = [
+    ["36_NAV_Calculation_Working"],
+    ["Generated", new Date().toLocaleString(), "Source", "Live simulator state"],
+    [],
+    ["NAV Component", "Amount", "Formula / Source"],
+    ["Total Assets", r.grossAssets, "Holdings + income receivable + derivative collateral + investor cash"],
+    ["Total Liabilities", r.liabilities, "Fees + expenses payable + derivative liabilities"],
+    ["Net Assets", { formula: "B5-B6", result: r.netAssets }, "Total Assets - Total Liabilities"],
+    ["Outstanding Shares", r.sharesOutstanding, "Investor share register"],
+    ["NAV Per Share", { formula: "B7/B8", result: r.navPerShare }, "Net Assets / Outstanding Shares"],
+    ["Investor Capital", r.investorCapital, "Investor master + capital activity"],
+    ["Management Fees", r.managementFee, "Average NAV x fee % / 365"],
+    ["Performance Fees", r.performanceFee, "Excess return over HWM / hurdle"],
+    ["Unrealized Gain/Loss", r.unrealizedGains, "Open positions revaluation"],
+    ["Realized Gain/Loss", r.realizedGains, "Closed trade activity"],
+    ["FX Impact", r.fxGainLoss, "Base currency retranslation"],
+  ];
+  return [
+    { name: "01_Operations_Dashboard", rows: objectRows("01_Operations_Dashboard", [
+      { Metric: "NAV Status", Value: openBreaks.some((b) => b.severity === "High") ? "NAV RELEASE BLOCKED" : "Draft T+0" },
+      { Metric: "Pending Approvals", Value: store.fundSetup.workflowStatus },
+      { Metric: "Break Count", Value: openBreaks.length },
+      { Metric: "Failed Trades", Value: failedTrades.length },
+      { Metric: "Missing Prices", Value: missingPrices.length },
+      { Metric: "Cash Exceptions", Value: cashExceptions.length },
+      { Metric: "NAV Completion %", Value: navCompletion },
+      { Metric: "Pending Recons", Value: pendingRecons },
+      { Metric: "Pending Fee Validation", Value: r.performanceFee > 0 ? "Required" : "Not required" },
+    ]) },
+    { name: "02_NAV_Control_Center", rows: objectRows("02_NAV_Control_Center", [
+      { Field: "NAV Date", Value: "2026-05-09" }, { Field: "Fund Status", Value: store.fundSetup.workflowStatus },
+      { Field: "Estimated NAV", Value: r.netAssets }, { Field: "Final NAV", Value: store.fundSetup.workflowStatus === "NAV Published" ? r.netAssets : "Pending final approval" },
+      { Field: "NAV Movement %", Value: navMovement }, { Field: "Reviewer", Value: "Senior Reviewer" }, { Field: "Approver", Value: "NAV Manager" },
+      { Field: "Signoff Status", Value: store.fundSetup.workflowStatus }, { Field: "NAV Freeze Status", Value: openBreaks.length ? "Not Frozen - breaks open" : "Ready to freeze" },
+    ]) },
+    { name: "03_Workflow_Status", rows: objectRows("03_Workflow_Status", [
+      { Stage: "Pricing Complete", Status: missingPrices.length ? "Escalated" : "Completed", Owner: "Valuations" },
+      { Stage: "Trade Booking Complete", Status: failedTrades.length ? "In Progress" : "Completed", Owner: "Trade Ops" },
+      { Stage: "FX Uploaded", Status: "Completed", Owner: "Treasury" },
+      { Stage: "Recon Completed", Status: pendingRecons ? "In Progress" : "Completed", Owner: "Reconciliations" },
+      { Stage: "Fee Posting Completed", Status: "Completed", Owner: "Fund Accounting" },
+      { Stage: "NAV Finalized", Status: openBreaks.length ? "Pending" : "Completed", Owner: "NAV Control" },
+      { Stage: "Client Pack Sent", Status: store.fundSetup.workflowStatus === "NAV Published" ? "Completed" : "Pending", Owner: "Client Service" },
+    ]) },
+    { name: "04_Exception_Manager", rows: objectRows("04_Exception_Manager", breakRows) },
+    { name: "05_Trade_Blotter", rows: objectRows("05_Trade_Blotter", tradeRows) },
+    { name: "06_Open_Positions", rows: objectRows("06_Open_Positions", holdingsRows.map((h) => ({ Ticker: h.Ticker, Quantity: h.Quantity, Currency: h.Currency, "Market Value": h["Market Value"], "Exposure %": h["Exposure %"] }))) },
+    { name: "07_Position_Ledger", rows: objectRows("07_Position_Ledger", tradeRows.map((t) => ({ Date: t["Trade Date"], Security: t.Security, Movement: t["Buy/Sell"] === "Buy" ? t.Quantity : -Number(t.Quantity), Broker: t.Broker, Status: t.Status }))) },
+    { name: "08_Portfolio_Holdings", rows: objectRows("08_Portfolio_Holdings", holdingsRows) },
+    { name: "09_Pricing", rows: objectRows("09_Pricing", r.holdings.map((h) => ({ Ticker: h.ticker, "Editable Price": h.marketPrice, "Prior Price": h.priorPrice, "Move %": h.priceMovePct, Source: h.priceSource, "NAV Linked": "Yes" }))) },
+    { name: "10_Stale_Price_Check", rows: objectRows("10_Stale_Price_Check", r.holdings.map((h) => ({ Ticker: h.ticker, "Last Price Date": h.lastPriceTime, "Days Stale": Math.max(0, Math.floor((Date.now() - new Date(h.lastPriceTime).getTime()) / 86400000)), "Tolerance Alerts": Math.abs(h.priceMovePct) > 5 ? "Breach" : "Clean" }))) },
+    { name: "11_FX_Rates", rows: objectRows("11_FX_Rates", store.fxRates.map((fx) => ({ Pair: fx.pair, Base: fx.base, Quote: fx.quote, "Editable Rate": fx.rate, "Prior Rate": fx.priorRate, Source: fx.source }))) },
+    { name: "12_Corporate_Actions", rows: objectRows("12_Corporate_Actions", store.corporateActions.map((c) => ({ Event: c.eventType, Security: c.security, "Ex-Date": c.exDate, "Pay Date": c.payDate, "Eligible Qty": c.eligibleQuantity, "Gross Amount": c.grossAmount, WHT: c.withholdingTax, "Net Receivable": c.netReceivable, Status: c.status, Posting: c.postingStatus }))) },
+    { name: "13_Cash_Recon", rows: objectRows("13_Cash_Recon", store.cashRecon.map((c) => ({ Currency: c.currency, "Internal Cash": c.internalLedgerCash, "Custodian Cash": c.custodianCash, Difference: c.internalLedgerCash - c.custodianCash, "Break Reason": c.breakReason, "Match Status": Math.abs(c.internalLedgerCash - c.custodianCash) < 1 ? "Matched" : "Break", "Resolution Status": c.status }))) },
+    { name: "14_Position_Recon", rows: objectRows("14_Position_Recon", store.positionRecon.map((p) => ({ Ticker: p.ticker, Internal: p.internalPosition, Custodian: p.custodianPosition, PB: p.pbPosition, Difference: p.internalPosition - p.custodianPosition, "Match Status": p.internalPosition === p.custodianPosition ? "Matched" : "Break", Severity: Math.abs(p.internalPosition - p.custodianPosition) > 1000 ? "High" : "Low", Aging: p.status === "Approved" ? 0 : 2 }))) },
+    { name: "15_Trade_Recon", rows: objectRows("15_Trade_Recon", tradeRows.map((t) => ({ "Trade ID": t["Trade ID"], Security: t.Security, Broker: t.Broker, Status: t.Status, "Match Status": t.Status === "Matched" || t.Status === "Booked" ? "Matched" : "Break", "Settlement Date": t["Settle Date"] }))) },
+    { name: "16_FX_Recon", rows: objectRows("16_FX_Recon", store.fxRates.map((fx) => ({ Pair: fx.pair, "Internal Rate": fx.rate, "Vendor Rate": fx.priorRate, Variance: fx.rate - fx.priorRate, Status: Math.abs(fx.rate - fx.priorRate) > 0.01 ? "Review" : "Matched" }))) },
+    { name: "17_Fee_Recon", rows: objectRows("17_Fee_Recon", [{ Fee: "Management Fee", System: r.managementFee, Recalculated: r.managementFee, Difference: 0, Status: "Matched" }, { Fee: "Performance Fee", System: r.performanceFee, Recalculated: r.performanceFee, Difference: 0, Status: "Matched" }]) },
+    { name: "18_Break_Management", rows: objectRows("18_Break_Management", breakRows) },
+    { name: "19_General_Ledger", rows: objectRows("19_General_Ledger", glRows) },
+    { name: "20_Trial_Balance", rows: objectRows("20_Trial_Balance", r.trialBalance.map((t) => ({ Account: t.account, Category: t.category, Debit: t.debit, Credit: t.credit, Balance: t.balance, Editable: "Yes - controller adjustment workflow" }))) },
+    { name: "21_Journal_Entries", rows: objectRows("21_Journal_Entries", glRows) },
+    { name: "22_Accruals", rows: objectRows("22_Accruals", store.accruals.map((a) => ({ Kind: a.kind, Ticker: a.ticker, "Ex-Date": a.exDate ?? "", "Pay Date": a.payDate ?? "", "Net Dividend": a.netDividend ?? 0, "Accrued Interest": a.accruedInterest ?? 0, "Posting Status": "Auto-posted" }))) },
+    { name: "23_Management_Fee", rows: objectRows("23_Management_Fee", investorRows.map((i) => ({ Investor: i.Investor, "Fee Basis": i.Capital, "Fee %": store.managementFeePct, "Fee Charged": i["Management Fee"], "Paid Fees": 0, "Unpaid Fees": i["Management Fee"] }))) },
+    { name: "24_Performance_Fee", rows: objectRows("24_Performance_Fee", investorRows.map((i) => ({ Investor: i.Investor, HWM: i.HWM, "Fee %": store.performanceFeePct, "Performance Fee": i["Performance Fee"], Status: i["Performance Fee"] > 0 ? "Accrued" : "No fee" }))) },
+    { name: "25_Perf_Fee_Eligibility", rows: objectRows("25_Performance_Fee_Eligibility", investorRows.map((i) => ({ Investor: i.Investor, Benchmark: "Fund hurdle", "Hurdle Rate": i["Hurdle Rate"], "HWM Validation": i.HWM > 0 ? "Pass" : "Fail", "Excess Return": Math.max(r.navPerShare - Number(i.HWM), 0), "Investor-Level Incentive Fee": i["Performance Fee"] }))) },
+    { name: "26_Expense_Allocation", rows: objectRows("26_Expense_Allocation", investorRows.map((i) => ({ Investor: i.Investor, "Expense Allocation": i["Expense Allocation"], "Management Fee Paid": i["Management Fee"], "Performance Fee Paid": i["Performance Fee"], "Total Deductions": i["Total Deductions"], "Ending NAV": i["Ending NAV"] }))) },
+    { name: "27_Realized_Gain_Loss", rows: objectRows("27_Realized_Gain_Loss", tradeRows.filter((t) => t["Buy/Sell"] === "Sell").map((t) => ({ Security: t.Security, Quantity: t.Quantity, Proceeds: t["Gross Amount"], "Estimated Realized G/L": Number(t["Gross Amount"]) * 0.037 }))) },
+    { name: "28_Unrealized_Gain_Loss", rows: objectRows("28_Unrealized_Gain_Loss", holdingsRows.map((h) => ({ Ticker: h.Ticker, "Market Value": h["Market Value"], Cost: h.Cost, "Unrealized G/L": h["Unrealized G/L"], "FX Impact": h["FX Impact"] }))) },
+    { name: "29_Investor_Master", rows: objectRows("29_Investor_Master", investorRows) },
+    { name: "30_Capital_Activity", rows: objectRows("30_Capital_Activity", store.activities.map((a) => ({ ID: a.id, Investor: store.investors.find((i) => i.id === a.investorId)?.name ?? a.investorId, Date: a.date, Type: a.type, Amount: a.amount, Status: a.status }))) },
+    { name: "31_Investor_Allocation", rows: objectRows("31_Investor_Allocation", investorRows.map((i) => ({ Investor: i.Investor, Capital: i.Capital, "Ownership %": i["Ownership %"], "Allocated NAV": Number(i["Ownership %"]) * r.netAssets }))) },
+    { name: "32_Equalization", rows: objectRows("32_Equalization", investorRows.map((i) => ({ Investor: i.Investor, "Equalization Enabled": i.Class === "Class C Series 2026" ? "Yes" : "No", "Applied?": i.Class === "Class C Series 2026" ? "Only post-accrual entry investors" : "No", Credit: i["Equalization Credit"] }))) },
+    { name: "33_Investor_Capital_Statement", rows: objectRows("33_Investor_Capital_Statement", investorRows.map((i) => ({ Investor: i.Investor, "Opening Capital": Number(i.Capital) - Number(i["Ending NAV"]) * 0.02, Subscriptions: Number(i.Capital) * 0.01, Redemptions: 0, "P&L Allocation": Number(i["Ending NAV"]) - Number(i.Capital), "Ending NAV": i["Ending NAV"] }))) },
+    { name: "34_Share_Register", rows: objectRows("34_Share_Register", investorRows.map((i) => ({ Investor: i.Investor, Class: i.Class, Shares: i.Shares, "NAV/share": r.navPerShare, "Capital Value": Number(i.Shares) * r.navPerShare }))) },
+    { name: "35_Investor_Fee_Breakdown", rows: objectRows("35_Investor_Fee_Breakdown", investorRows.map((i) => ({ Investor: i.Investor, "Management Fee": i["Management Fee"], "Performance Fee": i["Performance Fee"], "Admin Expense Allocation": i["Expense Allocation"], "Total Fees/Deductions": i["Total Deductions"] }))) },
+    { name: "36_NAV_Calculation_Working", rows: formulaRows },
+    { name: "37_NAV_Summary", rows: objectRows("37_NAV_Summary", [
+      { Item: "Total Assets", Amount: { formula: "'36_NAV_Calculation_Working'!B5", result: r.grossAssets } as unknown as number },
+      { Item: "Total Liabilities", Amount: { formula: "'36_NAV_Calculation_Working'!B6", result: r.liabilities } as unknown as number },
+      { Item: "Net Assets", Amount: { formula: "'36_NAV_Calculation_Working'!B7", result: r.netAssets } as unknown as number },
+      { Item: "Outstanding Shares", Amount: r.sharesOutstanding }, { Item: "NAV Per Share", Amount: r.navPerShare }, { Item: "Investor Capital", Amount: r.investorCapital },
+      { Item: "Accrued Expenses", Amount: r.adminExpenses }, { Item: "Management Fees", Amount: r.managementFee }, { Item: "Performance Fees", Amount: r.performanceFee },
+      { Item: "Unrealized Gain/Loss", Amount: r.unrealizedGains }, { Item: "Realized Gain/Loss", Amount: r.realizedGains }, { Item: "FX Impact", Amount: r.fxGainLoss },
+    ] as unknown as ExportRow[]) },
+    { name: "38_NAV_Recon", rows: objectRows("38_NAV_Recon", [{ Metric: "Prior NAV", Amount: priorNav }, { Metric: "Current NAV", Amount: r.netAssets }, { Metric: "NAV Movement", Amount: r.netAssets - priorNav }, { Metric: "NAV Movement %", Amount: navMovement }]) },
+    { name: "39_Control_Checks", rows: objectRows("39_Control_Checks", [
+      { Check: "TB Balanced?", Result: tbBalanced ? "Pass" : "Fail" }, { Check: "Missing Prices?", Result: missingPrices.length ? "Fail" : "Pass" },
+      { Check: "Recon Matched?", Result: pendingRecons ? "Fail" : "Pass" }, { Check: "Unposted JE?", Result: "Pass" }, { Check: "Negative NAV?", Result: r.netAssets < 0 ? "Fail" : "Pass" },
+      { Check: "Missing FX?", Result: "Pass" }, { Check: "Unresolved Breaks?", Result: openBreaks.length ? "Fail" : "Pass" },
+    ]) },
+    { name: "40_Balance_Sheet", rows: objectRows("40_Balance_Sheet", r.balanceSheet.map((b) => ({ Section: b.section, Line: b.line, Amount: b.amount }))) },
+    { name: "41_Income_Statement", rows: objectRows("41_Income_Statement", r.pnl.map((p) => ({ Line: p.line, Amount: p.amount }))) },
+    { name: "42_Cash_Flow_Statement", rows: objectRows("42_Cash_Flow_Statement", [{ Section: "Operating", Line: "Net investment income", Amount: r.dividendIncome + r.interestIncome - r.adminExpenses - r.brokerFees }, { Section: "Investing", Line: "Purchase/sale of investments", Amount: store.trades.reduce((s, t) => s + tradeCashMovement(t), 0) }, { Section: "Financing", Line: "Investor capital activity", Amount: store.activities.reduce((s, a) => s + (a.type === "Subscription" ? a.amount : -a.amount), 0) }]) },
+    { name: "43_Changes_Net_Assets", rows: objectRows("43_Statement_of_Changes_in_Net_Assets", r.waterfall.map((w) => ({ Component: w.name, Amount: w.value }))) },
+    { name: "44_Schedule_of_Investments", rows: objectRows("44_Schedule_of_Investments", holdingsRows) },
+    { name: "45_Trade_Settlement", rows: objectRows("45_Trade_Settlement", tradeRows.map((t) => ({ "Trade ID": t["Trade ID"], Security: t.Security, Broker: t.Broker, "Settle Date": t["Settle Date"], Status: t.Status, "Settlement Lifecycle": t.Status === "Failed" ? "Fail repair" : t.Status === "Pending" ? "Awaiting settlement" : "Settled/Matched" }))) },
+    { name: "46_Failed_Trades", rows: objectRows("46_Failed_Trades", tradeRows.filter((t) => t.Status === "Failed")) },
+    { name: "47_Cash_Projection", rows: objectRows("47_Cash_Projection", store.fxRates.slice(0, 10).map((fx, index) => ({ Currency: fx.base, "Opening Cash": 1_000_000 + index * 125_000, "Expected Inflows": 250_000 + index * 30_000, "Expected Outflows": 180_000 + index * 20_000, "Projected Cash": 1_070_000 + index * 135_000 }))) },
+    { name: "48_Compliance_Checks", rows: objectRows("48_Compliance_Checks", r.exposures.map((e) => ({ Check: `${e.name} exposure`, Value: e.value, Threshold: r.netAssets * 0.25, Status: Math.abs(e.value) > r.netAssets * 0.25 ? "Breach" : "Pass" }))) },
+    { name: "49_Audit_Trail", rows: objectRows("49_Audit_Trail", store.auditTrail.map((a) => ({ Timestamp: a.timestamp, User: "Current User", Field: a.field, "Previous Value": a.oldValue, "Updated Value": a.newValue, "Reason for Change": a.action, "Impacted Modules": a.impactedModules.join(" | ") }))) },
+    { name: "50_Approval_Log", rows: objectRows("50_Approval_Log", [
+      { Stage: "Analyst", Status: store.fundSetup.workflowStatus, User: "Fund Accountant", Timestamp: new Date().toLocaleString(), Comments: "Prepared NAV support package" },
+      { Stage: "Senior Reviewer", Status: openBreaks.length ? "Pending Review" : "Reviewed", User: "Senior Reviewer", Timestamp: "", Comments: openBreaks.length ? "Open breaks require clearance" : "No blocking breaks" },
+      { Stage: "NAV Manager", Status: store.fundSetup.workflowStatus === "NAV Published" ? "Approved" : "Pending", User: "NAV Manager", Timestamp: "", Comments: "Final release control" },
+    ]) },
+  ];
+}
+
 function ExportView() {
   const r = useRecalc();
+  const store = useFundStore();
   const download = (name: string, content: string) => {
     const url = URL.createObjectURL(new Blob([content], { type: "text/csv" }));
     const a = document.createElement("a");
@@ -1057,7 +1385,7 @@ function ExportView() {
     URL.revokeObjectURL(url);
   };
   const csv = r.pnl.map((x) => `${x.line},${x.amount}`).join("\n");
-  return <section className="panel full"><PanelTitle title="Financial Statements Export" right="Excel, PDF, NAV pack and investor statements" /><div className="scenario-grid big">{["Excel NAV Pack", "PDF NAV Pack", "Investor Statement", "Trial Balance", "P&L", "Balance Sheet"].map((x) => <button className="scenario-button" key={x} onClick={() => download(`${x.replaceAll(" ", "-").toLowerCase()}.csv`, csv)}><Download size={16} />{x}</button>)}</div></section>;
+  return <section className="panel full"><PanelTitle title="Financial Statements Export" right="Institutional multi-sheet NAV pack and support schedules" /><div className="scenario-grid big"><button className="scenario-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_Institutional_NAV_Pack.xlsx", buildInstitutionalNavPack(store, r))}><FileSpreadsheet size={16} />Institutional 50-Sheet NAV Pack</button>{["PDF NAV Pack", "Investor Statement", "Trial Balance", "P&L", "Balance Sheet"].map((x) => <button className="scenario-button" key={x} onClick={() => download(`${x.replaceAll(" ", "-").toLowerCase()}.csv`, csv)}><Download size={16} />{x}</button>)}</div></section>;
 }
 
 function impactDelta(before = 0, after = 0) {

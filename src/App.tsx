@@ -15,6 +15,7 @@ const modules: Array<{ id: ModuleId; label: string; icon: typeof Activity }> = [
   { id: "dashboard", label: "Executive Dashboard", icon: Gauge },
   { id: "aiCopilot", label: "AI Copilot", icon: Bot },
   { id: "fund", label: "Fund Master Setup", icon: Landmark },
+  { id: "structureComparison", label: "Fund Structure Comparison", icon: GitBranch },
   { id: "holdings", label: "Portfolio Holdings", icon: FileSpreadsheet },
   { id: "trades", label: "Trade Blotter", icon: BookOpenCheck },
   { id: "security", label: "Security Master", icon: Search },
@@ -280,6 +281,104 @@ function navMovementBridgeRows(store: FundState, r: ReturnType<typeof useRecalc>
   ];
 }
 
+const fundStructureOptions = [
+  "Standalone Fund",
+  "Master-Feeder Structure",
+  "Side-by-Side Structure",
+  "Fund of Funds (FoF)",
+  "Hybrid Fund Structure",
+  "Multi-Manager / Multi-Strategy Structure",
+];
+
+const normalizedStructure = (value: string) => {
+  const text = value.toLowerCase();
+  if (text.includes("master")) return "Master-Feeder Structure";
+  if (text.includes("side")) return "Side-by-Side Structure";
+  if (text.includes("fof") || text.includes("fund of funds")) return "Fund of Funds (FoF)";
+  if (text.includes("hybrid")) return "Hybrid Fund Structure";
+  if (text.includes("multi-manager") || text.includes("multi-strategy")) return "Multi-Manager / Multi-Strategy Structure";
+  return "Standalone Fund";
+};
+
+function structureComplexityRows() {
+  return [
+    { Structure: "Standalone Fund", "NAV Methodology": "Direct portfolio NAV", "Fee Structure": "Fund-level management fee, investor-level incentive fee", "Operational Complexity": "Low", "Investor Allocation Complexity": "Low", "Reporting Complexity": "Low", "Liquidity Profile": "Daily / monthly", "Valuation Frequency": "Daily or monthly", "Reconciliation Complexity": "Single vehicle" },
+    { Structure: "Master-Feeder Structure", "NAV Methodology": "Master NAV allocated to feeders", "Fee Structure": "Feeder-specific management and performance fee classes", "Operational Complexity": "High", "Investor Allocation Complexity": "High", "Reporting Complexity": "High", "Liquidity Profile": "Feeder terms differ", "Valuation Frequency": "Master first, feeders second", "Reconciliation Complexity": "Master plus feeder ownership tie-out" },
+    { Structure: "Side-by-Side Structure", "NAV Methodology": "Parallel vehicle NAVs", "Fee Structure": "Vehicle-specific fee and hurdle terms", "Operational Complexity": "Medium", "Investor Allocation Complexity": "Medium", "Reporting Complexity": "Medium", "Liquidity Profile": "Vehicle-specific", "Valuation Frequency": "Parallel NAV cycles", "Reconciliation Complexity": "Separate portfolios and cash" },
+    { Structure: "Fund of Funds (FoF)", "NAV Methodology": "Underlying fund NAV aggregation", "Fee Structure": "Underlying fees plus FoF overlay fees", "Operational Complexity": "High", "Investor Allocation Complexity": "Medium", "Reporting Complexity": "High", "Liquidity Profile": "Dependent on underlying liquidity", "Valuation Frequency": "Monthly / quarterly", "Reconciliation Complexity": "Capital statements and look-through exposures" },
+    { Structure: "Hybrid Fund Structure", "NAV Methodology": "Liquid MTM plus illiquid valuation models", "Fee Structure": "Bucket-level fee and carry rules", "Operational Complexity": "High", "Investor Allocation Complexity": "High", "Reporting Complexity": "High", "Liquidity Profile": "Mixed liquid / illiquid", "Valuation Frequency": "Daily and quarterly", "Reconciliation Complexity": "Pricing, model valuation and capital locks" },
+    { Structure: "Multi-Manager / Multi-Strategy Structure", "NAV Methodology": "Strategy and PM sleeve aggregation", "Fee Structure": "Strategy/PM-level incentive allocation", "Operational Complexity": "High", "Investor Allocation Complexity": "Medium", "Reporting Complexity": "High", "Liquidity Profile": "Strategy dependent", "Valuation Frequency": "Daily sleeve NAV", "Reconciliation Complexity": "Sleeve-level P&L, exposure and allocations" },
+  ];
+}
+
+function structureNavBridgeRows(store: FundState, r: ReturnType<typeof useRecalc>) {
+  const structure = normalizedStructure(store.fundSetup.fundStructure);
+  const strategyTotal = r.exposures.reduce((sum, e) => sum + e.value, 0) || 1;
+  const offshoreCapital = store.investors.filter((i) => i.className.includes("Founder") || i.className.includes("Series")).reduce((sum, i) => sum + i.capital, 0);
+  const onshoreCapital = Math.max(r.investorCapital - offshoreCapital, 0);
+  const offshorePct = r.investorCapital ? offshoreCapital / r.investorCapital : 0.55;
+  const onshorePct = 1 - offshorePct;
+  const rowsByStructure: Record<string, ExportRow[]> = {
+    "Standalone Fund": [
+      { Level: "Standalone Fund", Component: "Direct portfolio NAV", Amount: r.grossAssets, Ownership: 1, Notes: "Single capital pool holds investments directly" },
+      { Level: "Standalone Fund", Component: "Liabilities and fees", Amount: -r.liabilities, Ownership: 1, Notes: "Fund-level accruals reduce NAV" },
+      { Level: "Standalone Fund", Component: "Investor capital pool", Amount: r.netAssets, Ownership: 1, Notes: "Investor allocations flow directly from fund NAV" },
+    ],
+    "Master-Feeder Structure": [
+      { Level: "Master Fund", Component: "Portfolio NAV", Amount: r.netAssets + r.managementFee + r.performanceFee, Ownership: 1, Notes: "Master books trades, positions and investment P&L" },
+      { Level: "Offshore Feeder", Component: "Master ownership allocation", Amount: r.netAssets * offshorePct - r.managementFee * 0.58, Ownership: offshorePct, Notes: "2.00% management fee / 20% performance fee example" },
+      { Level: "Onshore Feeder", Component: "Master ownership allocation", Amount: r.netAssets * onshorePct - r.managementFee * 0.42, Ownership: onshorePct, Notes: "1.50% management fee / institutional fee class example" },
+      { Level: "Consolidated", Component: "Feeder ownership reconciliation", Amount: r.netAssets, Ownership: 1, Notes: "Feeder NAVs reconcile back to master NAV" },
+    ],
+    "Side-by-Side Structure": [
+      { Level: "Fund A - Institutional Vehicle", Component: "Separate portfolio NAV", Amount: r.netAssets * 0.62, Ownership: 0.62, Notes: "1% management fee / 10% incentive fee" },
+      { Level: "Fund B - Retail Vehicle", Component: "Separate portfolio NAV", Amount: r.netAssets * 0.38, Ownership: 0.38, Notes: "2% management fee / 20% incentive fee" },
+      { Level: "Comparison", Component: "Return differential", Amount: r.performanceFee * 0.5, Ownership: 0, Notes: "Fee terms create different investor returns" },
+    ],
+    "Fund of Funds (FoF)": r.exposures.slice(0, 6).map((e, index) => ({
+      Level: `Underlying Fund ${index + 1}`,
+      Component: e.name,
+      Amount: r.netAssets * (e.value / strategyTotal),
+      Ownership: e.value / strategyTotal,
+      Notes: "Underlying NAV feeds FoF NAV with layered fee impact",
+    })),
+    "Hybrid Fund Structure": [
+      { Level: "Liquid Assets", Component: "Level 1 / 2 daily MTM NAV", Amount: r.holdings.filter((h) => h.assetType !== "Bond").reduce((s, h) => s + Math.abs(h.marketValue), 0), Ownership: 0, Notes: "Daily pricing and live FX translation" },
+      { Level: "Illiquid Assets", Component: "Level 3 / model NAV", Amount: r.holdings.filter((h) => h.assetType === "Bond").reduce((s, h) => s + Math.abs(h.marketValue), 0) * 0.18, Ownership: 0, Notes: "Quarterly valuation committee support" },
+      { Level: "Consolidated Hybrid NAV", Component: "Liquid plus illiquid NAV", Amount: r.netAssets, Ownership: 1, Notes: "Mixed valuation calendar drives controls" },
+    ],
+    "Multi-Manager / Multi-Strategy Structure": r.exposures.map((e, index) => ({
+      Level: `PM Sleeve ${index + 1}`,
+      Component: e.name,
+      Amount: r.netAssets * (e.value / strategyTotal),
+      Ownership: e.value / strategyTotal,
+      Notes: "Strategy NAV, exposure and P&L contribution rolled into consolidated NAV",
+    })),
+  };
+  return rowsByStructure[structure] ?? rowsByStructure["Standalone Fund"];
+}
+
+function structureSpecificRows(store: FundState, r: ReturnType<typeof useRecalc>) {
+  const structure = normalizedStructure(store.fundSetup.fundStructure);
+  const bridge = structureNavBridgeRows(store, r);
+  if (structure === "Master-Feeder Structure") {
+    return bridge.map((row) => ({ View: row.Level, "NAV / Allocation": row.Amount, "Ownership %": pct(Number(row.Ownership)), "Fee Treatment": row.Notes, "Operational Focus": row.Level === "Master Fund" ? "Portfolio accounting, trading, pricing and P&L" : "Investor capital, feeder expenses and class fees" }));
+  }
+  if (structure === "Side-by-Side Structure") {
+    return bridge.map((row) => ({ Vehicle: row.Level, NAV: row.Amount, "Fee Terms": row.Notes, "Investor Pool": row.Level === "Fund A - Institutional Vehicle" ? "Institutional investors" : "Retail / advisory investors", "Return Comparison": row.Level === "Comparison" ? "Fee drag and hurdle difference" : "Separate NAV and expenses" }));
+  }
+  if (structure === "Fund of Funds (FoF)") {
+    return bridge.map((row) => ({ "Underlying Fund": row.Level, Strategy: row.Component, "Allocation %": pct(Number(row.Ownership)), "Underlying NAV": row.Amount, "Layered Fee Impact": "Underlying management/performance fees plus FoF overlay advisory fee", "Look-through": "Included in aggregated exposure" }));
+  }
+  if (structure === "Hybrid Fund Structure") {
+    return bridge.map((row) => ({ Bucket: row.Level, "NAV Component": row.Component, Amount: row.Amount, "Valuation Method": row.Level === "Illiquid Assets" ? "Model / valuation committee" : "Daily vendor pricing", "Valuation Frequency": row.Level === "Illiquid Assets" ? "Quarterly" : "Daily", "Fee Treatment": row.Level === "Illiquid Assets" ? "Carry / bucket-level fee" : "Liquid strategy management/performance fee" }));
+  }
+  if (structure === "Multi-Manager / Multi-Strategy Structure") {
+    return bridge.map((row) => ({ Sleeve: row.Level, Strategy: row.Component, "Strategy NAV": row.Amount, "Allocation %": pct(Number(row.Ownership)), "PM Incentive": "Sleeve-level performance allocation", "Operational Focus": "PM-level P&L, exposure and risk attribution" }));
+  }
+  return bridge.map((row) => ({ View: "Standalone Fund View", Component: row.Component, Amount: row.Amount, "Capital Flow": "Investors subscribe directly into fund", "Fee Treatment": "Management fee at fund level, performance fee at investor level", "Reporting": "Single NAV pack and capital statement" }));
+}
+
 type ExportValue = string | number | boolean | null | undefined;
 type ExportRow = Record<string, ExportValue>;
 
@@ -320,6 +419,7 @@ function exportRowsForModule(module: ModuleId, store: FundState, r: ReturnType<t
     const waterfall = waterfallEngine(store, r);
     return waterfall.partnerRows.map((row) => ({ Partner: row.partnerName, Type: row.partnerType, CapitalContribution: row.capitalContribution, OwnershipPct: row.ownershipPct, ROC: row.rocReceived, PreferredReturn: row.preferredReturnReceived, GPCatchUp: row.gpCatchUpReceived, ResidualSplit: row.residualSplitReceived, TotalDistribution: row.totalDistribution, RemainingUnreturnedCapital: row.remainingUnreturnedCapital, MOIC: row.moic }));
   }
+  if (module === "structureComparison") return structureSpecificRows(store, r) as ExportRow[];
   if (["capital", "subsReds", "investorReporting", "equalization", "expenses"].includes(module)) return store.investors.map((i) => ({ Investor: i.name, Class: i.className, Capital: i.capital, Shares: i.shares, HWM: i.hwm, EqualizationCredit: i.equalizationCredit, AllocationPct: r.investorCapital ? i.capital / r.investorCapital * 100 : 0, ManagementFeePct: store.managementFeePct, PerformanceFeePct: store.performanceFeePct }));
   if (["otc", "mtm"].includes(module)) return store.derivatives.map((d) => ({ ID: d.id, Type: d.type, Reference: d.reference, Notional: d.notional, MTM: d.mtm, AccruedInterest: d.accruedInterest, Collateral: d.collateral, Counterparty: d.counterparty }));
   if (module === "cashRecon") return store.cashRecon.map((c) => ({ Currency: c.currency, InternalLedgerCash: c.internalLedgerCash, CustodianCash: c.custodianCash, PrimeBrokerCash: c.primeBrokerCash, Difference: c.internalLedgerCash - c.custodianCash, BreakReason: c.breakReason, Owner: c.owner, Status: c.status }));
@@ -1440,7 +1540,7 @@ function AuditTrail() {
 function FundMasterSetup() {
   const { fundSetup, updateFundSetup, updateWorkflow } = useFundStore();
   const textFields: Array<[keyof typeof fundSetup, string]> = [
-    ["fundName", "Fund Name"], ["fundStructure", "Fund Structure"], ["fundType", "Fund Type"], ["navFrequency", "NAV Frequency"],
+    ["fundName", "Fund Name"], ["fundType", "Fund Type"], ["navFrequency", "NAV Frequency"],
     ["inceptionDate", "Inception Date"], ["fiscalYearEnd", "Fiscal Year End"], ["primeBroker", "Prime Broker"], ["custodian", "Custodian"],
     ["administrator", "Administrator"], ["auditor", "Auditor"], ["legalEntity", "Legal Entity"], ["redemptionTerms", "Redemption Terms"],
     ["subscriptionTerms", "Subscription Terms"], ["lockupTerms", "Lock-up Terms"], ["valuationCutoff", "Valuation Cutoff"], ["shareClasses", "Share Classes"],
@@ -1450,6 +1550,7 @@ function FundMasterSetup() {
       <PanelTitle title="Fund Master Setup" right={`Workflow: ${fundSetup.workflowStatus}`} />
       <WorkflowButtons current={fundSetup.workflowStatus} onChange={updateWorkflow} />
       <div className="form-grid">
+        <label><span>Fund Structure</span><select className="terminal-select" value={normalizedStructure(fundSetup.fundStructure)} onChange={(e) => updateFundSetup("fundStructure", e.target.value)}>{fundStructureOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
         {textFields.map(([field, label]) => (
           <label key={String(field)}><span>{label}</span><EditableText value={String(fundSetup[field])} onCommit={(v) => updateFundSetup(field, v)} /></label>
         ))}
@@ -1459,7 +1560,61 @@ function FundMasterSetup() {
         <label><span>Hurdle Rate</span><EditableNumber value={fundSetup.hurdleRate} onCommit={(v) => updateFundSetup("hurdleRate", v)} /></label>
         <label><span>High Water Mark Enabled</span><select className="terminal-select" value={fundSetup.highWaterMarkEnabled ? "Yes" : "No"} onChange={(e) => updateFundSetup("highWaterMarkEnabled", e.target.value === "Yes")}><option>Yes</option><option>No</option></select></label>
       </div>
+      <FundStructureSelectedView />
     </section>
+  );
+}
+
+function FundStructureSelectedView() {
+  const store = useFundStore();
+  const r = useRecalc();
+  const structure = normalizedStructure(store.fundSetup.fundStructure);
+  const bridge = structureNavBridgeRows(store, r);
+  return (
+    <div className="structure-subsection">
+      <PanelTitle title={`${structure} View`} right="Structure-specific NAV derivation, capital flow and fee treatment" />
+      <div className="metrics-row">
+        <Metric label="Structure" value={structure} />
+        <Metric label="Live NAV" value={fmt(r.netAssets, true)} tone="good" />
+        <Metric label="Investor capital" value={fmt(r.investorCapital, true)} />
+        <Metric label="Structure nodes" value={String(bridge.length)} />
+      </div>
+      <SimpleRows rows={structureSpecificRows(store, r).map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, typeof value === "number" ? fmt(value, true) : value])))} />
+    </div>
+  );
+}
+
+function FundStructureComparisonView() {
+  const store = useFundStore();
+  const r = useRecalc();
+  const selected = normalizedStructure(store.fundSetup.fundStructure);
+  const bridge = structureNavBridgeRows(store, r);
+  return (
+    <>
+      <section className="panel full">
+        <PanelTitle title="Fund_Structure_Comparison" right="Compare NAV methodology, fee treatment and operational complexity" />
+        <div className="fee-controls">
+          <label>Selected structure <select className="terminal-select" value={selected} onChange={(e) => store.updateFundSetup("fundStructure", e.target.value)}>{fundStructureOptions.map((option) => <option key={option}>{option}</option>)}</select></label>
+          <span>Current NAV {fmt(r.netAssets, true)}</span>
+          <span>Capital pool {fmt(r.investorCapital, true)}</span>
+        </div>
+        <SimpleRows rows={structureComplexityRows().map((row) => ({ ...row, Selected: row.Structure === selected ? "Active" : "" }))} />
+      </section>
+      <section className="panel full">
+        <PanelTitle title="Structure-Level NAV Bridge" right="How NAV is derived under the selected structure" />
+        <SimpleRows rows={bridge.map((row) => ({
+          Level: row.Level,
+          Component: row.Component,
+          Amount: fmt(Number(row.Amount), true),
+          "Ownership / Allocation": pct(Number(row.Ownership)),
+          Notes: row.Notes,
+        }))} />
+      </section>
+      <section className="panel full">
+        <PanelTitle title="Structure-Specific Reporting Schedules" right="Schedules that would be added to the NAV Pack for this structure" />
+        <SimpleRows rows={structureSpecificRows(store, r).map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) => [key, typeof value === "number" ? fmt(value, true) : value])))} />
+      </section>
+    </>
   );
 }
 
@@ -1711,6 +1866,9 @@ function buildInstitutionalNavPack(store: FundState, r: ReturnType<typeof useRec
   const totalInvestorMgmtFees = mgmtFeeRows.reduce((sum, row) => sum + Number(row["Gross Management Fee"]), 0);
   const totalInvestorPerfFees = perfFeeRows.reduce((sum, row) => sum + Number(row["Performance Fee Earned"]), 0);
   const investorCapitalStatementTotal = investorCapitalStatementRows.reduce((sum, row) => sum + Number(row["Ending Capital"]), 0);
+  const activeStructure = normalizedStructure(store.fundSetup.fundStructure);
+  const structureBridgeRows = structureNavBridgeRows(store, r);
+  const structureSupportRows = structureSpecificRows(store, r);
   const formulaRows: XlsxCell[][] = [
     ["36_NAV_Calculation_Working"],
     ["Generated", new Date().toLocaleString(), "Source", "Live simulator state"],
@@ -1812,6 +1970,19 @@ function buildInstitutionalNavPack(store: FundState, r: ReturnType<typeof useRec
     { name: "Partner_Waterfall_Distribution", rows: objectRows("Partner_Waterfall_Distribution", partnerWaterfallRows, "Partner-level LP/GP waterfall output") },
     { name: "Investor_Capital_Statement", rows: objectRows("Investor_Capital_Statement", investorCapitalStatementRows, "Investor capital statement with fees and waterfall distribution") },
     { name: "NAV_Movement_Bridge", rows: objectRows("NAV_Movement_Bridge", navBridgeRows, "Prior NAV to current NAV movement explanation") },
+    { name: "Fund_Structure_Comparison", rows: objectRows("Fund_Structure_Comparison", structureComplexityRows().map((row) => ({ ...row, Selected: row.Structure === activeStructure ? "Active" : "" })), "Multi-structure operating model comparison") },
+    { name: "Structure_NAV_Bridge", rows: objectRows("Structure_NAV_Bridge", structureBridgeRows, `Selected structure: ${activeStructure}`) },
+    { name: "Structure_Specific_Report", rows: objectRows("Structure_Specific_Report", structureSupportRows, "Structure-specific NAV pack support schedule") },
+    { name: "Master_Feeder_Support", rows: objectRows("Master_Feeder_Support", activeStructure === "Master-Feeder Structure" ? structureSupportRows : [
+      { Message: "Activate Master-Feeder Structure in Fund Master Setup to use this schedule", "Current Structure": activeStructure },
+    ], "Master NAV, feeder NAV and ownership reconciliation") },
+    { name: "FoF_Layered_Fees", rows: objectRows("FoF_Layered_Fees", activeStructure === "Fund of Funds (FoF)" ? structureSupportRows.map((row) => ({ ...row, "Underlying Fee": r.managementFee * 0.55 / Math.max(structureSupportRows.length, 1), "FoF Overlay Fee": r.managementFee * 0.25 / Math.max(structureSupportRows.length, 1), "Double Layer Fee Impact": "Underlying fees plus overlay advisory fee" })) : [
+      { Message: "Activate Fund of Funds (FoF) in Fund Master Setup to use this schedule", "Current Structure": activeStructure },
+    ], "Underlying exposure and double layer fee impact") },
+    { name: "Hybrid_Valuation_Support", rows: objectRows("Hybrid_Valuation_Support", activeStructure === "Hybrid Fund Structure" ? structureSupportRows : [
+      { Message: "Activate Hybrid Fund Structure in Fund Master Setup to use this schedule", "Current Structure": activeStructure },
+    ], "Liquid and illiquid valuation support") },
+    { name: "Strategy_PM_Allocation", rows: objectRows("Strategy_PM_Allocation", activeStructure === "Multi-Manager / Multi-Strategy Structure" ? structureSupportRows : r.exposures.map((e, index) => ({ PM: `PM ${index + 1}`, Strategy: e.name, "Strategy Exposure": e.value, "Strategy NAV Allocation": r.netAssets * (e.value / Math.max(r.exposures.reduce((sum, x) => sum + x.value, 0), 1)), "Incentive Allocation": r.performanceFee * (e.value / Math.max(r.exposures.reduce((sum, x) => sum + x.value, 0), 1)) })), "Strategy and PM-level NAV allocation") },
     { name: "Control_Checks", rows: objectRows("Control_Checks", [
       { Check: "TB Balanced?", Result: tbBalanced ? "Pass" : "Fail", Difference: tbDebit - tbCredit },
       { Check: "Total Assets - Total Liabilities = NAV?", Result: Math.abs(r.grossAssets - r.liabilities - r.netAssets) < 1 ? "Pass" : "Fail", Difference: r.grossAssets - r.liabilities - r.netAssets },
@@ -2263,6 +2434,7 @@ function ModuleContent() {
         {active === "dashboard" && <Dashboard />}
         {active === "aiCopilot" && <AICopilotWorkspace />}
         {active === "fund" && <FundMasterSetup />}
+        {active === "structureComparison" && <FundStructureComparisonView />}
         {active === "holdings" && <section className="panel full"><PanelTitle title="Editable Portfolio Holdings" right="Any edit recalculates NAV, P&L, GL and allocations" /><ManualSubmitBar label="Holding amendment workflow" fields="Quantity, Cost Price, Market Price" /><HoldingsGrid /></section>}
         {active === "security" && <><FileUploadPanel module="security" title="Security Reference Upload" /><SecurityMasterView /></>}
         {active === "editableFields" && <EditableFieldsView />}

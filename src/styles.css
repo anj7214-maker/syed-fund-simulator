@@ -94,6 +94,7 @@ h1 { margin: 2px 0 0; font-size: 20px; letter-spacing: 0; }
 .step.bad b { color: #ff5a6a; }
 .fee-controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; color: #9fb3bd; }
 .fee-controls label { display: inline-flex; gap: 8px; align-items: center; }
+.structure-subsection { margin-top: 18px; padding-top: 16px; border-top: 1px solid #263940; }
 .empty-state { padding: 28px; color: #78909d; border: 1px dashed #263940; }
 .manual-submit { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; padding: 10px; border: 1px solid #263940; background: #101d22; }
 .manual-submit div { display: grid; gap: 3px; min-width: min(420px, 100%); }

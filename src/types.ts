@@ -4,7 +4,7 @@ export type Currency =
 export type AssetType = "Equity" | "Bond" | "FX Forward" | "Swap" | "Option" | "Future" | "ETF" | "CFD" | "Commodity";
 export type ModuleId =
   | "dashboard" | "fund" | "holdings" | "trades" | "security" | "pricing" | "fx"
-  | "aiCopilot" | "editableFields" | "cashRecon" | "positionRecon" | "reconBreaks" | "corporateActions" | "dividends" | "coupons"
+  | "aiCopilot" | "editableFields" | "structureComparison" | "cashRecon" | "positionRecon" | "reconBreaks" | "corporateActions" | "dividends" | "coupons"
   | "otc" | "mtm" | "gl" | "trialBalance" | "pl" | "balanceSheet" | "nav"
   | "capital" | "subsReds" | "mgmtFees" | "perfFees" | "equalization" | "waterfall"
   | "expenses" | "audit" | "exceptions" | "risk" | "stress" | "scenario"

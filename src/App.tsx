@@ -1130,14 +1130,24 @@ function SecurityMasterView() {
 }
 
 function CorporateActionsView() {
-  const rows = useFundStore((s) => s.corporateActions);
+  const { corporateActions, updateCorporateAction } = useFundStore();
   return (
     <section className="panel full">
       <PanelTitle title="Corporate Actions Processing" right="Accrual, receivable/payable, GL and cash-settlement workflow" />
-      <SimpleRows rows={rows.map((c) => ({
-        "Event Type": c.eventType, Security: c.security, "Ex-Date": c.exDate, "Record Date": c.recordDate, "Pay Date": c.payDate,
-        "Eligible Qty": num(c.eligibleQuantity), "Gross Amount": fmt(c.grossAmount, true), "Withholding Tax": fmt(c.withholdingTax, true),
-        "Net Receivable": fmt(c.netReceivable, true), Status: c.status, "Posting Status": c.postingStatus, "NAV Impact": fmt(c.netReceivable, true),
+      <ManualSubmitBar label="Corporate action workflow" fields="Ex-Date, Record Date, Pay Date, Eligible Quantity, Gross Amount, Withholding Tax, Net Receivable, Status, Posting Status" />
+      <SimpleRows rows={corporateActions.map((c) => ({
+        "Event Type": c.eventType,
+        Security: c.security,
+        "Ex-Date": <EditableText value={c.exDate} onCommit={(v) => updateCorporateAction(c.id, "exDate", v)} />,
+        "Record Date": <EditableText value={c.recordDate} onCommit={(v) => updateCorporateAction(c.id, "recordDate", v)} />,
+        "Pay Date": <EditableText value={c.payDate} onCommit={(v) => updateCorporateAction(c.id, "payDate", v)} />,
+        "Eligible Qty": <FlashCell id={`${c.id}-eligibleQuantity`}><EditableNumber value={c.eligibleQuantity} onCommit={(v) => updateCorporateAction(c.id, "eligibleQuantity", v)} /></FlashCell>,
+        "Gross Amount": <FlashCell id={`${c.id}-grossAmount`}><EditableNumber value={c.grossAmount} onCommit={(v) => updateCorporateAction(c.id, "grossAmount", v)} /></FlashCell>,
+        "Withholding Tax": <FlashCell id={`${c.id}-withholdingTax`}><EditableNumber value={c.withholdingTax} onCommit={(v) => updateCorporateAction(c.id, "withholdingTax", v)} /></FlashCell>,
+        "Net Receivable": <FlashCell id={`${c.id}-netReceivable`}><EditableNumber value={c.netReceivable} onCommit={(v) => updateCorporateAction(c.id, "netReceivable", v)} /></FlashCell>,
+        Status: <select className="terminal-select" value={c.status} onChange={(e) => updateCorporateAction(c.id, "status", e.target.value)}><option>Announced</option><option>Validated</option><option>Booked</option><option>Settled</option></select>,
+        "Posting Status": <select className="terminal-select" value={c.postingStatus} onChange={(e) => updateCorporateAction(c.id, "postingStatus", e.target.value)}><option>Pending</option><option>Accrued</option><option>Posted</option><option>Cash Settled</option></select>,
+        "NAV Impact": fmt(c.netReceivable, true),
       }))} />
     </section>
   );

@@ -23,6 +23,7 @@ const impacts: Record<string, ModuleId[]> = {
   break: ["reconBreaks", "exceptions", "workflow", "ops", "audit"],
   cashRecon: ["cashRecon", "reconBreaks", "exceptions", "nav", "audit", "ops"],
   positionRecon: ["positionRecon", "reconBreaks", "exceptions", "holdings", "nav", "audit", "ops"],
+  corporateAction: ["corporateActions", "dividends", "coupons", "gl", "trialBalance", "pl", "balanceSheet", "nav", "cashRecon", "audit", "ops"],
 };
 
 export interface FundState {
@@ -67,6 +68,7 @@ export interface FundState {
   updateDerivative: (id: string, field: keyof Derivative, value: number) => void;
   updateCashRecon: (id: string, field: keyof CashReconRow, value: string | number) => void;
   updatePositionRecon: (id: string, field: keyof PositionReconRow, value: string | number) => void;
+  updateCorporateAction: (id: string, field: keyof CorporateAction, value: string | number) => void;
   updateFundSetup: (field: keyof FundSetup, value: string | number | boolean) => void;
   updateBreak: (id: string, field: keyof BreakItem, value: string | number) => void;
   updateWorkflow: (status: FundSetup["workflowStatus"]) => void;
@@ -209,6 +211,36 @@ export const useFundStore = create<FundState>()(
           impactedModules: impacts.positionRecon,
           flashed: { [`${id}-${String(field)}`]: Number(nextValue) >= Number(old ?? 0) ? "up" : "down" },
           auditTrail: [audit(`Position recon ${id}.${String(field)}`, old, nextValue, impacts.positionRecon, "Position reconciliation amendment"), ...s.auditTrail].slice(0, 100),
+        };
+      }),
+      updateCorporateAction: (id, field, value) => set((s) => {
+        const old = s.corporateActions.find((row) => row.id === id)?.[field];
+        const numericFields = ["eligibleQuantity", "grossAmount", "withholdingTax", "netReceivable"] as Array<keyof CorporateAction>;
+        const nextValue = numericFields.includes(field) ? Number(value) : value;
+        const corporateActions = s.corporateActions.map((row) => {
+          if (row.id !== id) return row;
+          const updated = { ...row, [field]: nextValue };
+          if (field === "grossAmount" || field === "withholdingTax") {
+            updated.netReceivable = Number(updated.grossAmount) - Number(updated.withholdingTax);
+          }
+          return updated;
+        });
+        const updatedAction = corporateActions.find((row) => row.id === id);
+        const accruals = updatedAction
+          ? s.accruals.map((a) => {
+              if (a.ticker !== updatedAction.security) return a;
+              if (updatedAction.eventType === "Dividend" && a.kind === "Dividend") return { ...a, sharesEligible: updatedAction.eligibleQuantity, withholdingTax: updatedAction.grossAmount ? updatedAction.withholdingTax / updatedAction.grossAmount : 0, netDividend: updatedAction.netReceivable };
+              if (updatedAction.eventType === "Coupon" && a.kind === "Coupon") return { ...a, accruedInterest: updatedAction.netReceivable };
+              return a;
+            })
+          : s.accruals;
+        return {
+          manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
+          corporateActions,
+          accruals,
+          impactedModules: impacts.corporateAction,
+          flashed: { [`${id}-${String(field)}`]: Number(nextValue) >= Number(old ?? 0) ? "up" : "down" },
+          auditTrail: [audit(`Corporate action ${id}.${String(field)}`, old, nextValue, impacts.corporateAction, "Corporate action amendment"), ...s.auditTrail].slice(0, 100),
         };
       }),
       updateFundSetup: (field, value) => set((s) => {

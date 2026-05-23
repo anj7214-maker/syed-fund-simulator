@@ -1,5 +1,5 @@
 import { baseExceptions } from "../data/sampleData";
-import { Accrual, CapitalActivity, Derivative, ExceptionItem, FxRate, Holding, Investor, JournalEntry, RecalcResult, Trade } from "../types";
+import { Accrual, CapitalActivity, CorporateAction, Derivative, ExceptionItem, FxRate, Holding, Investor, JournalEntry, RecalcResult, Trade } from "../types";
 
 const round = (value: number, dp = 2) => Number(value.toFixed(dp));
 const signedValue = (h: Holding) => h.quantity * h.marketPrice * h.fxRate;
@@ -39,6 +39,22 @@ function accrualEntries(accruals: Accrual[]): JournalEntry[] {
       ],
     };
   });
+}
+
+function corporateActionEntries(corporateActions: CorporateAction[]): JournalEntry[] {
+  return corporateActions
+    .filter((a) => a.netReceivable !== 0 && a.postingStatus !== "Pending")
+    .map((a) => ({
+      id: `JE-${a.id}`,
+      date: a.exDate,
+      source: "Corporate Actions",
+      memo: `${a.eventType} processing for ${a.security}`,
+      auto: true,
+      lines: [
+        { account: a.postingStatus === "Cash Settled" ? "Cash at broker" : "Corporate action receivable", category: "Asset" as const, debit: Math.max(a.netReceivable, 0), credit: Math.max(-a.netReceivable, 0), ref: a.id },
+        { account: a.eventType === "Coupon" ? "Interest income" : "Corporate action income", category: "Income" as const, debit: Math.max(-a.netReceivable, 0), credit: Math.max(a.netReceivable, 0), ref: a.id },
+      ],
+    }));
 }
 
 function feeEntries(managementFee: number, performanceFee: number): JournalEntry[] {
@@ -105,6 +121,7 @@ export function recalculate(params: {
   activities: CapitalActivity[];
   accruals: Accrual[];
   derivatives: Derivative[];
+  corporateActions?: CorporateAction[];
   managementFeePct: number;
   performanceFeePct: number;
   manualExceptions?: ExceptionItem[];
@@ -147,6 +164,9 @@ export function recalculate(params: {
   const derivativeCollateral = params.derivatives.reduce((sum, d) => sum + d.collateral, 0);
   const dividendIncome = params.accruals.filter((a) => a.kind === "Dividend").reduce((sum, a) => sum + (a.netDividend ?? 0), 0);
   const interestIncome = params.accruals.filter((a) => a.kind === "Coupon").reduce((sum, a) => sum + (a.accruedInterest ?? 0), 0);
+  const corporateActionIncome = (params.corporateActions ?? [])
+    .filter((a) => a.postingStatus !== "Pending")
+    .reduce((sum, a) => sum + a.netReceivable, 0);
   const brokerFees = params.trades.reduce((sum, t) => sum + t.fees, 0);
   const investorCapital = params.investors.reduce((sum, i) => sum + i.capital, 0);
   const subscriptions = params.activities.filter((a) => a.type === "Subscription" && a.status === "Approved").reduce((sum, a) => sum + a.amount, 0);
@@ -159,7 +179,7 @@ export function recalculate(params: {
   const performanceProfit = Math.max(0, portfolioMv + derivativeMtm + netInvestorCash - hwmBase);
   const performanceFee = round(performanceProfit * params.performanceFeePct);
   const liabilities = round(managementFee + performanceFee + adminExpenses + Math.max(-derivativeMtm, 0));
-  const grossAssets = round(Math.max(portfolioMv, 0) + Math.max(derivativeMtm, 0) + derivativeCollateral + dividendIncome + interestIncome + Math.max(netInvestorCash, 0));
+  const grossAssets = round(Math.max(portfolioMv, 0) + Math.max(derivativeMtm, 0) + derivativeCollateral + dividendIncome + interestIncome + corporateActionIncome + Math.max(netInvestorCash, 0));
   const netAssets = round(grossAssets - liabilities);
   const sharesOutstanding = params.investors.reduce((sum, i) => sum + i.shares, 0);
   const navPerShare = sharesOutstanding ? round(netAssets / sharesOutstanding, 4) : 0;
@@ -168,6 +188,7 @@ export function recalculate(params: {
   const gl = [
     ...tradeEntries(params.trades),
     ...accrualEntries(params.accruals),
+    ...corporateActionEntries(params.corporateActions ?? []),
     ...mtmEntries(unrealizedGains, fxGainLoss, params.derivatives),
     ...feeEntries(managementFee, performanceFee),
   ];
@@ -202,7 +223,7 @@ export function recalculate(params: {
     realizedGains: round(realizedGains),
     unrealizedGains: round(unrealizedGains),
     dividendIncome: round(dividendIncome),
-    interestIncome: round(interestIncome),
+    interestIncome: round(interestIncome + corporateActionIncome),
     fxGainLoss: round(fxGainLoss),
     adminExpenses,
     brokerFees,
@@ -213,6 +234,7 @@ export function recalculate(params: {
       { line: "Unrealized gains", amount: round(unrealizedGains) },
       { line: "Dividend income", amount: round(dividendIncome) },
       { line: "Interest income", amount: round(interestIncome) },
+      { line: "Corporate action income", amount: round(corporateActionIncome) },
       { line: "FX gains/losses", amount: round(fxGainLoss) },
       { line: "Management fees", amount: -managementFee },
       { line: "Performance fees", amount: -performanceFee },
@@ -224,6 +246,7 @@ export function recalculate(params: {
       { section: "Assets", line: "Investor capital cash", amount: round(Math.max(netInvestorCash, 0)) },
       { section: "Assets", line: "Derivative receivable and collateral", amount: round(Math.max(derivativeMtm, 0) + derivativeCollateral) },
       { section: "Assets", line: "Income receivable", amount: round(dividendIncome + interestIncome) },
+      { section: "Assets", line: "Corporate action receivable", amount: round(corporateActionIncome) },
       { section: "Liabilities", line: "Fee accruals and expenses payable", amount: round(liabilities) },
       { section: "Capital", line: "Partners capital", amount: round(netAssets) },
     ],

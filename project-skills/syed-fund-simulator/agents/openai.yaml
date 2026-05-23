@@ -1,0 +1,4 @@
+interface:
+  display_name: "SYED Fund Simulator"
+  short_description: "Work on the institutional hedge fund NAV simulator."
+  default_prompt: "Use this skill when improving, debugging, deploying, or documenting the SYED FUND SIMULATOR."

@@ -255,7 +255,8 @@ function makeZip(files: Array<{ path: string; content: string }>) {
   write16(ev, 10, files.length);
   write32(ev, 12, centralSize);
   write32(ev, 16, offset);
-  return new Blob([...fileParts, ...centralParts, end], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const blobParts = [...fileParts, ...centralParts, end].map((part) => part.buffer.slice(part.byteOffset, part.byteOffset + part.byteLength) as ArrayBuffer);
+  return new Blob(blobParts, { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
 
 function downloadXlsx(name: string, sheets: XlsxSheet[]) {
@@ -507,6 +508,7 @@ function NavPackInputCenter() {
           <button className="terminal-button" onClick={downloadInputRegister}><Download size={15} /> Download Inputs</button>
           <button className="terminal-button" onClick={downloadNavSummary}><FileDown size={15} /> Download NAV Summary</button>
           <button className="terminal-button" onClick={() => downloadCsv("nav-pack-before-after-impact.csv", impactReportRows(store))}><FileSpreadsheet size={15} /> Download Impact</button>
+          <button className="terminal-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_Institutional_NAV_Pack.xlsx", buildInstitutionalNavPack(store, r))}><FileSpreadsheet size={15} /> Full NAV Pack</button>
         </div>
       </div>
       <div className="nav-source-grid">

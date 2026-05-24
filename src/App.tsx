@@ -9,7 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useFundStore, useRecalc } from "./store/fundStore";
 import type { FundState } from "./store/fundStore";
 import { scenarioCatalog, scenariosForModule } from "./engine/scenarioEngine";
-import { CopilotContext, ModuleId, ScenarioDefinition, ScenarioDifficulty, UploadModule } from "./types";
+import { CopilotContext, ModuleId, ScenarioDefinition, UploadModule } from "./types";
 
 const modules: Array<{ id: ModuleId; label: string; icon: typeof Activity }> = [
   { id: "dashboard", label: "Executive Dashboard", icon: Gauge },
@@ -2150,46 +2150,214 @@ function ScenarioEditableGrid({ module }: { module: ModuleId }) {
   return <section className="scenario-workbench"><PanelTitle title="Editable Scenario Workbench" right="NAV package impact" /><Statements kind="nav" /></section>;
 }
 
+type ScenarioExperienceLevel = "All" | "0-4 Years" | "4-10 Years" | "10+ Years";
+type ScenarioDesignation = "All" | "Analyst" | "SME / Senior Analyst / QA" | "Signoff Authority";
+type ScenarioSimulationType = "All" | "NAV Oversight" | "Reconciliation" | "Pricing" | "Trade Operations" | "Corporate Actions" | "Performance Fees" | "Management Fees" | "Investor Allocation" | "Operational Risk" | "Crisis Simulation";
+
+type ScenarioSeniority = {
+  experience: Exclude<ScenarioExperienceLevel, "All">;
+  designation: Exclude<ScenarioDesignation, "All">;
+  roleTypes: string;
+  responsibility: string;
+  permissions: string;
+  complexity: string;
+  estimatedResolution: string;
+  expectedSignoffLevel: string;
+  expectedOutput: string;
+};
+
+function scenarioSeniority(scenario: ScenarioDefinition): ScenarioSeniority {
+  const name = scenario.scenarioName.toLowerCase();
+  const objective = scenario.objective.toLowerCase();
+  const isSignoff = scenario.difficulty === "Crisis Simulation"
+    || scenario.difficulty === "NAV Oversight"
+    || ["restatement", "post release", "compensation", "collateral crisis", "liquidity", "gating", "suspension", "regulatory", "audit qualification", "material pricing override", "open breaks"].some((term) => name.includes(term) || objective.includes(term));
+  const isSme = scenario.difficulty === "Advanced"
+    || scenario.difficulty === "Real World Ops"
+    || ["fee", "hurdle", "benchmark", "equalization", "cross-currency", "dirty", "clean", "valuation review", "prime broker", "lifecycle", "allocation"].some((term) => name.includes(term) || objective.includes(term));
+
+  if (isSignoff) {
+    return {
+      experience: "10+ Years",
+      designation: "Signoff Authority",
+      roleTypes: "Vice President / Director / Fund Controller / NAV Oversight Head",
+      responsibility: "Final NAV signoff, materiality decisioning, governance, investor communication and crisis escalation.",
+      permissions: "Final NAV approval, release authorization, price override approval, restatement approval and workflow release.",
+      complexity: "Advanced + Crisis Simulation",
+      estimatedResolution: scenario.materialityLevel === "Critical" ? "Same day crisis bridge" : "2-4 hours",
+      expectedSignoffLevel: "NAV Manager / Fund Controller",
+      expectedOutput: "Final approval decision, governance assessment, investor communication summary, risk severity, committee notes and regulatory impact.",
+    };
+  }
+
+  if (isSme) {
+    return {
+      experience: "4-10 Years",
+      designation: "SME / Senior Analyst / QA",
+      roleTypes: "Senior Fund Accountant / SME / QA Reviewer / NAV Reviewer / Oversight Analyst",
+      responsibility: "Root cause analysis, NAV validation, complex reconciliation review, materiality assessment and QA signoff recommendation.",
+      permissions: "Review and validate adjustments, approve operational fixes, escalate material breaks and recommend NAV restatement.",
+      complexity: "Intermediate to Advanced",
+      estimatedResolution: scenario.materialityLevel === "High" || scenario.materialityLevel === "Critical" ? "60-120 minutes" : "30-60 minutes",
+      expectedSignoffLevel: "Senior Reviewer / QA Lead",
+      expectedOutput: "Validation workflow, recommended accounting entries, materiality assessment, operational signoff recommendation and QA comments.",
+    };
+  }
+
+  return {
+    experience: "0-4 Years",
+    designation: "Analyst",
+    roleTypes: "Fund Accountant / NAV Analyst / Operations Analyst / Reconciliation Analyst / Pricing Analyst",
+    responsibility: "Transaction processing, break identification, basic NAV impact analysis, validation and escalation.",
+    permissions: "Investigate only, document breaks, prepare notes and recommend escalation.",
+    complexity: "Beginner to Intermediate",
+    estimatedResolution: scenario.materialityLevel === "Medium" ? "30-45 minutes" : "15-30 minutes",
+    expectedSignoffLevel: "Senior Analyst / SME",
+    expectedOutput: "Break identification, NAV impact, suggested escalation and operational notes.",
+  };
+}
+
+function scenarioSimulationType(scenario: ScenarioDefinition): Exclude<ScenarioSimulationType, "All"> {
+  const name = scenario.scenarioName.toLowerCase();
+  const objective = scenario.objective.toLowerCase();
+  if (scenario.difficulty === "Crisis Simulation") return "Crisis Simulation";
+  if (scenario.module === "nav" || name.includes("nav") || name.includes("restatement")) return "NAV Oversight";
+  if (name.includes("performance fee") || name.includes("hurdle") || name.includes("benchmark")) return "Performance Fees";
+  if (name.includes("management fee") || name.includes("commission") || name.includes("broker fee")) return "Management Fees";
+  if (scenario.module === "cashRecon" || scenario.module === "positionRecon" || objective.includes("recon")) return "Reconciliation";
+  if (scenario.module === "pricing" || scenario.module === "holdings" || name.includes("price") || name.includes("stale") || name.includes("valuation")) return "Pricing";
+  if (scenario.module === "trades" || name.includes("trade") || name.includes("settlement")) return "Trade Operations";
+  if (scenario.module === "corporateActions" || name.includes("corporate") || name.includes("dividend") || name.includes("coupon") || name.includes("split")) return "Corporate Actions";
+  if (scenario.module === "capital" || name.includes("investor") || name.includes("subscription") || name.includes("redemption") || name.includes("equalization")) return "Investor Allocation";
+  return "Operational Risk";
+}
+
+function scenarioOperationalMetadata(scenario: ScenarioDefinition) {
+  const seniority = scenarioSeniority(scenario);
+  const simulationType = scenarioSimulationType(scenario);
+  const escalationOwner: Record<Exclude<ScenarioSimulationType, "All">, string> = {
+    "NAV Oversight": "NAV Manager",
+    Reconciliation: "Reconciliation Manager",
+    Pricing: "Valuations Lead",
+    "Trade Operations": "Trade Operations Lead",
+    "Corporate Actions": "Income / Corporate Actions Supervisor",
+    "Performance Fees": "Fund Accounting SME",
+    "Management Fees": "Fund Accounting SME",
+    "Investor Allocation": "Investor Services Manager",
+    "Operational Risk": "Risk & Operations Head",
+    "Crisis Simulation": "NAV Oversight Committee",
+  };
+  return {
+    ...seniority,
+    simulationType,
+    criticality: scenario.materialityLevel,
+    escalationOwner: escalationOwner[simulationType],
+    navImpactCategory: scenario.materialityLevel === "Critical" || scenario.materialityLevel === "High" ? "Material NAV impact" : scenario.materialityLevel === "Medium" ? "Review threshold" : "Operational control item",
+    signoffRequired: seniority.designation === "Signoff Authority" || scenario.materialityLevel === "Critical" || scenario.materialityLevel === "High" ? "Yes" : "No",
+  };
+}
+
+function ScenarioSimulationCard({ scenario }: { scenario: ScenarioDefinition }) {
+  const { applyScenario, activeScenarioId } = useFundStore();
+  const meta = scenarioOperationalMetadata(scenario);
+  return (
+    <div className={`scenario-card ${activeScenarioId === scenario.id ? "active" : ""}`}>
+      <div className="scenario-card-head">
+        <span>{meta.simulationType}</span>
+        <b>{scenario.scenarioName}</b>
+      </div>
+      <div className="scenario-meta">
+        <span className="tag">{meta.experience}</span>
+        <span className="tag">{meta.designation}</span>
+        <span className={`tag ${meta.criticality === "Critical" ? "bad" : meta.criticality === "High" || meta.criticality === "Medium" ? "warn" : "good"}`}>{meta.criticality}</span>
+      </div>
+      <p>{scenario.objective}</p>
+      <SimpleRows rows={[
+        { "Estimated resolution": meta.estimatedResolution, "Escalation owner": meta.escalationOwner },
+        { "NAV impact category": meta.navImpactCategory, "Signoff required": meta.signoffRequired },
+        { "Responsibility level": meta.responsibility, Permissions: meta.permissions },
+      ]} />
+      <small>{scenario.learnerTask}</small>
+      <div className="scenario-card-actions">
+        <button className="terminal-button selected" onClick={() => applyScenario(scenario.id)}>Start Scenario</button>
+      </div>
+    </div>
+  );
+}
+
+function ScenarioIncidentPanel({ scenario }: { scenario: ScenarioDefinition }) {
+  const meta = scenarioOperationalMetadata(scenario);
+  return (
+    <div className="scenario-active-summary">
+      <span>Operational Incident Summary</span>
+      <b>{scenario.scenarioName}</b>
+      <p>{scenario.businessContext}</p>
+      <SimpleRows rows={[
+        { "Affected fund area": scenario.affectedTables.join(" -> "), "NAV impact": scenario.expectedNAVImpact },
+        { "Operational break": scenario.expectedReconciliationImpact, "Required action": scenario.learnerTask },
+        { "Escalation matrix": "Analyst investigates -> SME validates -> Signoff authority approves material NAV decision", "Expected signoff level": meta.expectedSignoffLevel },
+        { "Expected output": meta.expectedOutput, "Operational role": meta.roleTypes },
+      ]} />
+    </div>
+  );
+}
+
 function ScenarioLabView() {
-  const [moduleFilter, setModuleFilter] = useState<ModuleId | "All">("All");
-  const [difficulty, setDifficulty] = useState<ScenarioDifficulty | "All">("All");
   const store = useFundStore();
+  const [experience, setExperience] = useState<ScenarioExperienceLevel>("All");
+  const [designation, setDesignation] = useState<ScenarioDesignation>("All");
+  const [simulationType, setSimulationType] = useState<ScenarioSimulationType>("All");
   const filtered = useMemo(() => scenarioCatalog.filter((scenario) => {
-    const moduleOk = moduleFilter === "All" || scenario.module === moduleFilter;
-    const difficultyOk = difficulty === "All" || scenario.difficulty === difficulty;
-    return moduleOk && difficultyOk;
-  }), [moduleFilter, difficulty]);
+    const meta = scenarioOperationalMetadata(scenario);
+    const experienceOk = experience === "All" || meta.experience === experience;
+    const designationOk = designation === "All" || meta.designation === designation;
+    const typeOk = simulationType === "All" || meta.simulationType === simulationType;
+    return experienceOk && designationOk && typeOk;
+  }), [experience, designation, simulationType]);
   const [selectedId, setSelectedId] = useState<string>(filtered[0]?.id ?? scenarioCatalog[0].id);
-  const difficulties: Array<ScenarioDifficulty | "All"> = ["All", "Beginner", "Intermediate", "Advanced", "Real World Ops", "NAV Oversight", "Crisis Simulation"];
-  const scenarioModules = Array.from(new Set(scenarioCatalog.map((scenario) => scenario.module)));
+  const experienceLevels: ScenarioExperienceLevel[] = ["All", "0-4 Years", "4-10 Years", "10+ Years"];
+  const designations: ScenarioDesignation[] = ["All", "Analyst", "SME / Senior Analyst / QA", "Signoff Authority"];
+  const simulationTypes: ScenarioSimulationType[] = ["All", "NAV Oversight", "Reconciliation", "Pricing", "Trade Operations", "Corporate Actions", "Performance Fees", "Management Fees", "Investor Allocation", "Operational Risk", "Crisis Simulation"];
   const selected = filtered.find((scenario) => scenario.id === selectedId) ?? filtered[0] ?? scenarioCatalog[0];
   const activeScenario = scenarioCatalog.find((scenario) => scenario.id === store.activeScenarioId);
   const workbenchModule = activeScenario?.module ?? selected.module;
   const nav = store.activeScenarioImpact ? impactDelta(store.activeScenarioImpact.before.nav, store.activeScenarioImpact.after.nav) : null;
+
+  useEffect(() => {
+    if (!filtered.some((scenario) => scenario.id === selectedId)) {
+      setSelectedId(filtered[0]?.id ?? scenarioCatalog[0].id);
+    }
+  }, [filtered, selectedId]);
+
   return (
     <section className="panel full scenario-lab">
-      <PanelTitle title="Scenario Simulation Sandbox" right="Input numbers, intervene manually, and trace NAV impact" />
+      <PanelTitle title="Scenario Simulation Sandbox" right="Role-based hedge fund operations training" />
       <ManualEditModeBar />
       <div className="sandbox-explainer">
-        <div><b>What you can do</b><span>Select a scenario, start investigation, then edit prices, quantities, fees, FX-sensitive values, capital, MTM or collateral depending on the module.</span></div>
-        <div><b>What updates live</b><span>NAV, NAV/share, P&L, GL, trial balance, cash, investor allocation, risk severity, materiality and exception controls.</span></div>
-        <div><b>What to observe</b><span>The right Impact Summary and bottom Dependency Flow show how one input creates a full operational ripple effect.</span></div>
+        <div><b>Experience framework</b><span>Scenarios adapt to analyst, SME/QA and signoff authority responsibilities.</span></div>
+        <div><b>Operational maturity</b><span>Complexity moves from break identification to root cause review and final NAV governance.</span></div>
+        <div><b>Execution flow</b><span>Start a scenario to review incident summary, NAV impact, break, escalation matrix and expected signoff.</span></div>
       </div>
       <div className="scenario-filters">
-        <select className="terminal-select" value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value as ModuleId | "All")}>
-          <option>All</option>
-          {scenarioModules.map((module) => <option key={module}>{module}</option>)}
+        <select className="terminal-select" value={experience} onChange={(e) => setExperience(e.target.value as ScenarioExperienceLevel)}>
+          {experienceLevels.map((level) => <option key={level}>{level}</option>)}
         </select>
-        <select className="terminal-select" value={difficulty} onChange={(e) => setDifficulty(e.target.value as ScenarioDifficulty | "All")}>
-          {difficulties.map((level) => <option key={level}>{level}</option>)}
+        <select className="terminal-select" value={designation} onChange={(e) => setDesignation(e.target.value as ScenarioDesignation)}>
+          {designations.map((role) => <option key={role}>{role}</option>)}
+        </select>
+        <select className="terminal-select" value={simulationType} onChange={(e) => setSimulationType(e.target.value as ScenarioSimulationType)}>
+          {simulationTypes.map((type) => <option key={type}>{type}</option>)}
         </select>
       </div>
       <div className="scenario-lab-clean">
         <div className="scenario-list">
-          {filtered.map((scenario) => <button key={scenario.id} className={selected.id === scenario.id ? "selected" : ""} onClick={() => setSelectedId(scenario.id)}><b>{scenario.scenarioName}</b><span>{scenario.module} · {scenario.difficulty}</span></button>)}
+          {filtered.map((scenario) => {
+            const meta = scenarioOperationalMetadata(scenario);
+            return <button key={scenario.id} className={selected.id === scenario.id ? "selected" : ""} onClick={() => setSelectedId(scenario.id)}><b>{scenario.scenarioName}</b><span>{meta.experience} - {meta.designation} - {meta.simulationType}</span></button>;
+          })}
         </div>
         <div className="scenario-detail">
-          <ScenarioCard scenario={selected} />
+          <ScenarioSimulationCard scenario={selected} />
           {activeScenario && <div className="scenario-active-summary">
             <span>Active Investigation</span>
             <b>{activeScenario.scenarioName}</b>
@@ -2204,6 +2372,7 @@ function ScenarioLabView() {
               <button className="terminal-button reject" onClick={store.resetScenario}>Reset Scenario</button>
             </div>
           </div>}
+          {activeScenario && <ScenarioIncidentPanel scenario={activeScenario} />}
         </div>
       </div>
       <ScenarioEditableGrid module={workbenchModule} />

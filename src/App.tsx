@@ -1853,14 +1853,25 @@ function QualityRubricView({ type }: { type: "ta" | "middle" | "back" }) {
   const finalRating = rubricRating(overall);
   const worst = [...config.rows].sort((a, b) => a.score - b.score)[0];
   const navEscalation = criticalBreaks.length || tbImbalance > 1 || navVariancePct > 0.005;
+  const redCount = config.rows.filter((row) => row.rating === "RED").length;
+  const amberCount = config.rows.filter((row) => row.rating === "AMBER").length;
+  const topRisks = [...config.rows].sort((a, b) => a.score - b.score).slice(0, 5);
   const executiveRows = [
-    { Output: "Funds at operational risk", Status: finalRating === "GREEN" ? "None" : "1 fund under review", Evidence: `${config.title} overall ${overall}%` },
-    { Output: "NAVs requiring escalation", Status: navEscalation ? "Escalation required" : "No escalation", Evidence: `${criticalBreaks.length} high severity breaks, TB imbalance ${fmt(tbImbalance, true)}` },
-    { Output: "Highest operational weakness", Status: worst?.section ?? "None", Evidence: `${worst?.score ?? 0}% ${worst?.rating ?? "GREEN"}` },
-    { Output: "Audit-sensitive areas", Status: documentationGaps ? "Evidence gaps present" : "Evidence complete", Evidence: `${documentationGaps} documentation or approval gaps` },
-    { Output: "Investor-impacting events", Status: pendingActivities.length || pendingRedemptions.length ? "Monitor" : "Stable", Evidence: `${pendingActivities.length} pending capital items` },
-    { Output: "Signoff blockers", Status: navEscalation ? "Blocked / review required" : "Clear", Evidence: `${openBreaks.length} open breaks, ${pendingApprovals} approval items` },
+    { Measure: "Overall operating health", Rating: <span className={`tag ${rubricTone(finalRating) === "bad" ? "bad" : rubricTone(finalRating) === "warn" ? "warn" : "good"}`}>{finalRating}</span>, Score: `${overall}%`, "Leadership action": finalRating === "RED" ? "Immediate management escalation" : finalRating === "AMBER" ? "Review required before signoff" : "Operationally stable" },
+    { Measure: "NAV release risk", Rating: <span className={`tag ${navEscalation ? "bad" : "good"}`}>{navEscalation ? "BLOCKED / REVIEW" : "CLEAR"}</span>, Score: `${criticalBreaks.length} critical/high`, "Leadership action": navEscalation ? "Hold NAV release until blockers are cleared" : "No leadership intervention required" },
+    { Measure: "Control weakness count", Rating: <span className={`tag ${redCount ? "bad" : amberCount ? "warn" : "good"}`}>{redCount ? "RED" : amberCount ? "AMBER" : "GREEN"}</span>, Score: `${redCount} red / ${amberCount} amber`, "Leadership action": redCount ? "Assign accountable owner today" : amberCount ? "Track through daily control meeting" : "Monitor" },
+    { Measure: "Audit exposure", Rating: <span className={`tag ${documentationGaps ? "warn" : "good"}`}>{documentationGaps ? "AMBER" : "GREEN"}</span>, Score: `${documentationGaps} evidence gaps`, "Leadership action": documentationGaps ? "Complete approval evidence and support pack" : "Audit support complete" },
+    { Measure: "Investor impact", Rating: <span className={`tag ${pendingActivities.length || pendingRedemptions.length ? "warn" : "good"}`}>{pendingActivities.length || pendingRedemptions.length ? "AMBER" : "GREEN"}</span>, Score: `${pendingActivities.length} pending capital items`, "Leadership action": pendingActivities.length ? "Prioritize investor-impacting activity" : "Stable" },
+    { Measure: "Highest priority weakness", Rating: <span className={`tag ${rubricTone(worst?.rating ?? "GREEN") === "bad" ? "bad" : rubricTone(worst?.rating ?? "GREEN") === "warn" ? "warn" : "good"}`}>{worst?.rating ?? "GREEN"}</span>, Score: worst ? `${worst.section} - ${worst.score}%` : "None", "Leadership action": worst?.managementAction ?? "No action required" },
   ];
+  const priorityRows = topRisks.map((row, idx) => ({
+    Priority: idx + 1,
+    "Quality measure": row.section,
+    Rating: <span className={`tag ${rubricTone(row.rating) === "bad" ? "bad" : rubricTone(row.rating) === "warn" ? "warn" : "good"}`}>{row.rating}</span>,
+    Score: `${row.score}%`,
+    "Key evidence": row.metrics,
+    "Immediate action": row.managementAction,
+  }));
 
   return (
     <section className="panel full">
@@ -1871,17 +1882,13 @@ function QualityRubricView({ type }: { type: "ta" | "middle" | "back" }) {
         <Metric label="Critical breaks" value={String(criticalBreaks.length)} tone={criticalBreaks.length ? "bad" : "good"} />
         <Metric label="Signoff readiness" value={navEscalation ? "Review" : "Ready"} tone={navEscalation ? "warn" : "good"} />
       </section>
-      <SimpleRows rows={config.rows.map((row) => ({
-        Section: row.section,
-        Score: `${row.score}%`,
-        Status: <span className={`tag ${rubricTone(row.rating) === "bad" ? "bad" : rubricTone(row.rating) === "warn" ? "warn" : "good"}`}>{row.rating}</span>,
-        Metrics: row.metrics,
-        Output: row.output,
-        "Management action": row.managementAction,
-      }))} />
       <section className="panel">
-        <PanelTitle title="Executive Management Output" right="Operational risk, audit exposure and NAV release governance" />
+        <PanelTitle title="Leadership Quality Measurement" right="Concise RAG controls for urgent management review" />
         <SimpleRows rows={executiveRows} />
+      </section>
+      <section className="panel">
+        <PanelTitle title="Top Control Priorities" right="Only the weakest quality measures requiring attention" />
+        <SimpleRows rows={priorityRows} />
       </section>
     </section>
   );

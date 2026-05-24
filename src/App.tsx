@@ -51,6 +51,9 @@ const modules: Array<{ id: ModuleId; label: string; icon: typeof Activity }> = [
   { id: "exports", label: "Financial Statements Export", icon: Download },
   { id: "workflow", label: "Workflow Approval Queue", icon: BookOpenCheck },
   { id: "ops", label: "Operations Control Dashboard", icon: Activity },
+  { id: "taOversight", label: "Transfer Agency Oversight", icon: Users },
+  { id: "middleOfficeOversight", label: "Middle Office NAV & Risk Oversight", icon: Gauge },
+  { id: "backOfficeOversight", label: "Back Office Operational Control Center", icon: ShieldAlert },
 ];
 
 const compactMoney = (n: number) => {
@@ -1736,6 +1739,154 @@ function ReconRiskOps({ type }: { type: ModuleId }) {
   return <section className="panel full"><PanelTitle title={modules.find((m) => m.id === type)?.label ?? "Module"} right="Institutional operating worksheet" /><SimpleRows rows={r.exceptions.map((e) => ({ Module: e.module, Severity: e.severity, Break: e.message, Owner: e.owner, Status: e.status }))} /></section>;
 }
 
+type RubricRating = "GREEN" | "AMBER" | "RED";
+type RubricSection = {
+  section: string;
+  score: number;
+  rating: RubricRating;
+  metrics: string;
+  output: string;
+  managementAction: string;
+};
+
+function boundedScore(base: number, deduction: number) {
+  return Math.max(0, Math.min(100, Math.round(base - deduction)));
+}
+
+function rubricRating(score: number): RubricRating {
+  if (score >= 85) return "GREEN";
+  if (score >= 70) return "AMBER";
+  return "RED";
+}
+
+function rubricTone(rating: RubricRating): "good" | "warn" | "bad" {
+  return rating === "GREEN" ? "good" : rating === "AMBER" ? "warn" : "bad";
+}
+
+function section(section: string, score: number, metrics: string, output: string, managementAction: string): RubricSection {
+  const rating = rubricRating(score);
+  return { section, score, rating, metrics, output, managementAction };
+}
+
+function avgScore(rows: RubricSection[]) {
+  return rows.length ? Math.round(rows.reduce((sum, row) => sum + row.score, 0) / rows.length) : 0;
+}
+
+function QualityRubricView({ type }: { type: "ta" | "middle" | "back" }) {
+  const store = useFundStore();
+  const r = useRecalc();
+  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const criticalBreaks = openBreaks.filter((b) => b.severity === "Critical" || b.severity === "High");
+  const agedBreaks = openBreaks.filter((b) => b.aging >= 3);
+  const pendingActivities = store.activities.filter((a) => a.status === "Pending");
+  const redemptions = store.activities.filter((a) => a.type === "Redemption");
+  const pendingRedemptions = redemptions.filter((a) => a.status === "Pending");
+  const largeInvestorConcentration = store.investors.filter((i) => r.investorCapital && i.capital / r.investorCapital > 0.2).length;
+  const cashBreaks = store.cashRecon.filter((c) => Math.abs(c.internalLedgerCash - c.custodianCash) > 1 || c.status !== "Approved");
+  const positionBreaks = store.positionRecon.filter((p) => Math.abs(p.internalPosition - p.custodianPosition) > 0 || p.status !== "Approved");
+  const failedTrades = store.trades.filter((t) => t.status === "Failed");
+  const pendingTrades = store.trades.filter((t) => t.status === "Pending");
+  const stalePrices = r.holdings.filter((h) => !h.marketPrice || Math.abs(h.priceMovePct) > 5);
+  const levelThreeHoldings = store.securityMaster.filter((s) => s.valuationHierarchy === "Level 3" || s.stalePricing || s.toleranceBreach);
+  const fxVariance = store.fxRates.filter((fx) => Math.abs((fx.rate - fx.priorRate) / Math.max(Math.abs(fx.priorRate), 1)) > 0.02);
+  const pendingCorporateActions = store.corporateActions.filter((ca) => ca.status !== "Settled" || ca.postingStatus !== "Cash Settled");
+  const pendingApprovals = store.auditTrail.filter((a) => a.action.toLowerCase().includes("manual")).length + openBreaks.filter((b) => ["Open", "Investigating", "Escalated"].includes(b.status)).length;
+  const unsupportedJournals = r.gl.filter((je) => !je.auto).length;
+  const tbImbalance = Math.abs(r.trialBalance.reduce((sum, row) => sum + row.debit - row.credit, 0));
+  const navVariance = store.activeScenarioImpact ? Math.abs(store.activeScenarioImpact.after.nav - store.activeScenarioImpact.before.nav) : 0;
+  const navVariancePct = r.netAssets ? navVariance / Math.abs(r.netAssets) : 0;
+  const documentationGaps = Math.min(10, openBreaks.filter((b) => !b.resolutionNotes || b.resolutionNotes === "Pending").length + pendingApprovals);
+  const marginPressure = store.derivatives.filter((d) => Math.abs(d.mtm) > Math.abs(d.collateral) * 1.25).length;
+  const feeExposure = r.managementFee + r.performanceFee;
+  const feeConfidenceDeduction = Math.min(35, Math.abs(feeExposure) / Math.max(Math.abs(r.netAssets), 1) * 1000 + pendingApprovals);
+
+  const taRows: RubricSection[] = [
+    section("Subscription Processing Quality", boundedScore(100, pendingActivities.filter((a) => a.type === "Subscription").length * 7 + cashBreaks.length * 3), `${pendingActivities.length} pending activities, ${cashBreaks.length} cash breaks`, "Subscription accuracy %, pending subscription dashboard, investor impact severity", "Resolve pending capital activity and wire mismatches before NAV allocation."),
+    section("Redemption Processing Quality", boundedScore(100, pendingRedemptions.length * 10 + criticalBreaks.length * 5), `${pendingRedemptions.length} pending redemptions, ${criticalBreaks.length} high severity breaks`, "Redemption efficiency score, liquidity stress alerts, investor payout risk", "Review liquidity, gates and payout controls with Investor Services."),
+    section("AML / KYC Compliance Quality", boundedScore(96, largeInvestorConcentration * 6 + documentationGaps * 2), `${largeInvestorConcentration} concentrated investors, ${documentationGaps} documentation gaps`, "Compliance health score, high-risk investor alerts, regulatory escalation dashboard", "Obtain missing evidence and review high-value investor onboarding."),
+    section("Investor Communication Quality", boundedScore(98, pendingApprovals * 3 + agedBreaks.length * 4), `${pendingApprovals} pending approvals, ${agedBreaks.length} aged breaks`, "Communication SLA score, investor servicing quality, dissatisfaction alerts", "Prioritize statement/NAV communication where breaks are investor-impacting."),
+    section("Allocation Accuracy Quality", boundedScore(100, Math.abs(r.investorCapital - r.netAssets) / Math.max(Math.abs(r.netAssets), 1) * 200 + openBreaks.filter((b) => ["NAV Variance", "Cash"].includes(b.breakType)).length * 5), `Investor capital variance ${fmt(r.investorCapital - r.netAssets, true)}`, "Allocation confidence score, LP fairness indicator, allocation break dashboard", "Tie investor capital, equalization and fee allocations back to NAV."),
+    section("Capital Activity Oversight", boundedScore(100, largeInvestorConcentration * 8 + Math.min(20, redemptions.reduce((s, a) => s + Math.abs(a.amount), 0) / Math.max(Math.abs(r.netAssets), 1) * 200)), `${largeInvestorConcentration} concentration alerts, redemption flow ${fmt(redemptions.reduce((s, a) => s + Math.abs(a.amount), 0), true)}`, "Capital flow risk indicator, liquidity pressure monitor", "Monitor subscription spikes, redemption pressure and concentration risk."),
+    section("Investor Risk & Escalation", boundedScore(100, criticalBreaks.length * 8 + pendingRedemptions.length * 6), `${criticalBreaks.length} high severity items, ${pendingRedemptions.length} payout risks`, "Investor risk severity, escalation matrix", "Escalate investor-impacting errors through TA manager and NAV oversight."),
+    section("Transfer Agency SLA Monitoring", boundedScore(100, agedBreaks.length * 8 + pendingActivities.length * 4), `${agedBreaks.length} aged breaks, ${pendingActivities.length} pending items`, "SLA adherence %, operational delay heatmap", "Clear aged items and document reason codes for missed SLA."),
+    section("Audit & Documentation Quality", boundedScore(100, documentationGaps * 6), `${documentationGaps} evidence gaps`, "Audit readiness %, documentation gap tracker", "Attach support for manual changes, investor forms and approvals."),
+    section("Investor Experience Score", boundedScore(100, pendingActivities.length * 5 + criticalBreaks.length * 6 + documentationGaps * 3), `${pendingActivities.length} pending, ${criticalBreaks.length} critical/high, ${documentationGaps} gaps`, "Investor servicing grade, red/amber/green rating", "Reduce error frequency and communication delays before investor reporting."),
+  ];
+
+  const middleRows: RubricSection[] = [
+    section("NAV Validation Quality", boundedScore(100, openBreaks.length * 4 + (tbImbalance > 1 ? 15 : 0) + navVariancePct * 1000), `${openBreaks.length} open breaks, TB imbalance ${fmt(tbImbalance, true)}`, "NAV confidence score, restatement probability, NAV operational health", "Hold NAV if material breaks or TB imbalance remain unresolved."),
+    section("Pricing & Valuation Oversight", boundedScore(100, stalePrices.length * 7 + levelThreeHoldings.length * 5), `${stalePrices.length} stale/variance prices, ${levelThreeHoldings.length} level 3 or challenged securities`, "Valuation confidence score, override tracker, illiquid exposure indicator", "Route stale, overridden or illiquid prices to valuation review."),
+    section("P&L Validation Quality", boundedScore(100, positionBreaks.length * 4 + fxVariance.length * 4 + pendingCorporateActions.length * 2), `${positionBreaks.length} position breaks, ${fxVariance.length} FX variances`, "P&L validation score, P&L sensitivity analysis", "Validate price, FX, accrual and trade-driven P&L movements."),
+    section("Exposure & Concentration Risk", boundedScore(100, largeInvestorConcentration * 4 + r.exposures.filter((e) => Math.abs(e.value) > r.netAssets * 0.25).length * 8), `${r.exposures.length} exposure sleeves, ${largeInvestorConcentration} concentration alerts`, "Concentration heatmap, risk severity score", "Review issuer, strategy, country and liquidity concentration before signoff."),
+    section("Trade Lifecycle Oversight", boundedScore(100, failedTrades.length * 10 + pendingTrades.length * 5), `${failedTrades.length} failed trades, ${pendingTrades.length} pending trades`, "Trade operational quality score, failed trade dashboard", "Escalate failed settlements and late trade amendments."),
+    section("Counterparty Risk Oversight", boundedScore(100, marginPressure * 8 + store.derivatives.length * 2), `${store.derivatives.length} OTC rows, ${marginPressure} collateral gaps`, "Counterparty risk score, exposure severity monitor", "Review PB/counterparty concentration and ISDA threshold pressure."),
+    section("Collateral & Margin Quality", boundedScore(100, marginPressure * 12 + cashBreaks.length * 3), `${marginPressure} margin pressure alerts, ${cashBreaks.length} cash breaks`, "Margin stability score, liquidity funding alerts", "Resolve margin disputes and collateral mismatches before NAV release."),
+    section("Exception Management Quality", boundedScore(100, openBreaks.length * 5 + agedBreaks.length * 6 + pendingApprovals * 2), `${openBreaks.length} open breaks, ${agedBreaks.length} aged`, "Exception severity score, operational instability indicator", "Assign owners, evidence root cause and approve resolution."),
+    section("Risk Escalation Governance", boundedScore(100, criticalBreaks.length * 10 + pendingApprovals * 3), `${criticalBreaks.length} critical/high breaks, ${pendingApprovals} pending approvals`, "Governance score, escalation risk heatmap", "Escalate unresolved critical events to NAV oversight."),
+    section("Signoff Readiness", boundedScore(100, criticalBreaks.length * 12 + openBreaks.length * 3 + (tbImbalance > 1 ? 15 : 0)), `${criticalBreaks.length} blockers, ${openBreaks.length} open breaks`, "Ready for NAV signoff / Review required / Hold NAV / Executive escalation", "Proceed only when material breaks, pricing and approvals are clear."),
+  ];
+
+  const backRows: RubricSection[] = [
+    section("Trade Processing", boundedScore(100, failedTrades.length * 8 + pendingTrades.length * 4), `${failedTrades.length} failed, ${pendingTrades.length} pending`, "Trade quality score, STP efficiency %", "Validate economics, duplicates and amendments."),
+    section("Settlement Operations", boundedScore(100, failedTrades.length * 10 + positionBreaks.filter((p) => p.settlementStatus === "Failed Trade").length * 7), `${failedTrades.length} failed trades`, "Settlement efficiency %, failed trade risk", "Escalate failed settlements with broker/custodian."),
+    section("Cash Operations", boundedScore(100, cashBreaks.length * 7 + fxVariance.length * 3), `${cashBreaks.length} cash breaks, ${fxVariance.length} FX variances`, "Cash stability score, funding pressure alerts", "Clear wire, nostro and FX funding mismatches."),
+    section("Reconciliation Operations", boundedScore(100, openBreaks.length * 4 + agedBreaks.length * 5 + positionBreaks.length * 3), `${openBreaks.length} breaks, ${agedBreaks.length} aged`, "Reconciliation quality score, break aging dashboard", "Prioritize aged, NAV-impacting and repeat breaks."),
+    section("Corporate Actions", boundedScore(100, pendingCorporateActions.length * 5), `${pendingCorporateActions.length} pending CA events`, "Corporate action accuracy score, financial impact tracker", "Validate entitlement, WHT, accrual and settlement status."),
+    section("Static Data Management", boundedScore(100, store.securityMaster.filter((s) => s.toleranceBreach || !s.isin).length * 8), `${store.securityMaster.filter((s) => s.toleranceBreach || !s.isin).length} static data alerts`, "Static data integrity score", "Correct security master, SSI and counterparty setup gaps."),
+    section("Pricing Operations", boundedScore(100, stalePrices.length * 7), `${stalePrices.length} stale/missing/tolerance prices`, "Pricing operational score", "Challenge missing or stale prices with vendor evidence."),
+    section("FX Operations", boundedScore(100, fxVariance.length * 8), `${fxVariance.length} FX variance alerts`, "FX operational stability score", "Validate source rates, funding and settlement currency."),
+    section("Custody Operations", boundedScore(100, cashBreaks.length * 4 + positionBreaks.length * 4), `${cashBreaks.length} cash and ${positionBreaks.length} position custody breaks`, "Custody reliability score", "Resolve custody/PB mismatches and asset servicing delays."),
+    section("Fee Operations", boundedScore(100, feeConfidenceDeduction), `Fee exposure ${fmt(feeExposure, true)}`, "Fee calculation confidence score", "Tie management, performance, HWM and equalization to GL and investor capital."),
+    section("Accounting Control", boundedScore(100, (tbImbalance > 1 ? 25 : 0) + unsupportedJournals * 5), `TB imbalance ${fmt(tbImbalance, true)}, ${unsupportedJournals} manual journals`, "Accounting integrity score", "Substantiate journals and clear trial balance issues."),
+    section("Regulatory Reporting Support", boundedScore(96, documentationGaps * 3 + criticalBreaks.length * 4), `${documentationGaps} documentation gaps`, "Regulatory support score", "Resolve missing disclosures and critical exceptions."),
+    section("Audit Support", boundedScore(100, documentationGaps * 6 + unsupportedJournals * 3), `${documentationGaps} gaps, ${unsupportedJournals} manual JEs`, "Audit readiness %", "Complete support pack, approvals and evidence trail."),
+    section("Exception Management", boundedScore(100, openBreaks.length * 5 + criticalBreaks.length * 8), `${openBreaks.length} open, ${criticalBreaks.length} critical/high`, "Operational risk score", "Escalate repeat failures and critical incidents."),
+    section("Workflow & Approvals", boundedScore(100, pendingApprovals * 5), `${pendingApprovals} pending signoffs`, "Workflow governance score", "Clear maker-checker approvals and unauthorized override reviews."),
+  ];
+
+  const config = type === "ta"
+    ? { title: "Transfer Agency Oversight", right: "Investor servicing, capital activity and TA controls", rows: taRows }
+    : type === "middle"
+      ? { title: "Middle Office NAV & Risk Oversight", right: "NAV validation, valuation governance and risk controls", rows: middleRows }
+      : { title: "Back Office Operational Control Center", right: "Trade, settlement, custody, accounting and workflow controls", rows: backRows };
+  const overall = avgScore(config.rows);
+  const finalRating = rubricRating(overall);
+  const worst = [...config.rows].sort((a, b) => a.score - b.score)[0];
+  const navEscalation = criticalBreaks.length || tbImbalance > 1 || navVariancePct > 0.005;
+  const executiveRows = [
+    { Output: "Funds at operational risk", Status: finalRating === "GREEN" ? "None" : "1 fund under review", Evidence: `${config.title} overall ${overall}%` },
+    { Output: "NAVs requiring escalation", Status: navEscalation ? "Escalation required" : "No escalation", Evidence: `${criticalBreaks.length} high severity breaks, TB imbalance ${fmt(tbImbalance, true)}` },
+    { Output: "Highest operational weakness", Status: worst?.section ?? "None", Evidence: `${worst?.score ?? 0}% ${worst?.rating ?? "GREEN"}` },
+    { Output: "Audit-sensitive areas", Status: documentationGaps ? "Evidence gaps present" : "Evidence complete", Evidence: `${documentationGaps} documentation or approval gaps` },
+    { Output: "Investor-impacting events", Status: pendingActivities.length || pendingRedemptions.length ? "Monitor" : "Stable", Evidence: `${pendingActivities.length} pending capital items` },
+    { Output: "Signoff blockers", Status: navEscalation ? "Blocked / review required" : "Clear", Evidence: `${openBreaks.length} open breaks, ${pendingApprovals} approval items` },
+  ];
+
+  return (
+    <section className="panel full">
+      <PanelTitle title={config.title} right={config.right} />
+      <section className="metrics-row">
+        <Metric label="Quality score" value={`${overall}%`} tone={rubricTone(finalRating)} />
+        <Metric label="Final status" value={finalRating} tone={rubricTone(finalRating)} />
+        <Metric label="Critical breaks" value={String(criticalBreaks.length)} tone={criticalBreaks.length ? "bad" : "good"} />
+        <Metric label="Signoff readiness" value={navEscalation ? "Review" : "Ready"} tone={navEscalation ? "warn" : "good"} />
+      </section>
+      <SimpleRows rows={config.rows.map((row) => ({
+        Section: row.section,
+        Score: `${row.score}%`,
+        Status: <span className={`tag ${rubricTone(row.rating) === "bad" ? "bad" : rubricTone(row.rating) === "warn" ? "warn" : "good"}`}>{row.rating}</span>,
+        Metrics: row.metrics,
+        Output: row.output,
+        "Management action": row.managementAction,
+      }))} />
+      <section className="panel">
+        <PanelTitle title="Executive Management Output" right="Operational risk, audit exposure and NAV release governance" />
+        <SimpleRows rows={executiveRows} />
+      </section>
+    </section>
+  );
+}
+
 function buildInstitutionalNavPack(store: FundState, r: ReturnType<typeof useRecalc>): XlsxSheet[] {
   const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
   const failedTrades = store.trades.filter((t) => t.status === "Failed");
@@ -2631,6 +2782,9 @@ function ModuleContent() {
         {active === "positionRecon" && <><FileUploadPanel module="positionRecon" title="Position Reconciliation Upload" /><PositionReconciliationView /></>}
         {active === "workflow" && <WorkflowQueue />}
         {active === "scenario" && <ScenarioLabView />}
+        {active === "taOversight" && <QualityRubricView type="ta" />}
+        {active === "middleOfficeOversight" && <QualityRubricView type="middle" />}
+        {active === "backOfficeOversight" && <QualityRubricView type="back" />}
         {["risk", "stress", "ops"].includes(active) && <ReconRiskOps type={active} />}
         {active === "exports" && <ExportView />}
         <OperationalBottomPanel />

@@ -8,7 +8,8 @@ export type ModuleId =
   | "otc" | "mtm" | "gl" | "trialBalance" | "pl" | "balanceSheet" | "nav"
   | "capital" | "subsReds" | "mgmtFees" | "perfFees" | "equalization" | "waterfall"
   | "expenses" | "audit" | "exceptions" | "risk" | "stress" | "scenario"
-  | "investorReporting" | "exports" | "workflow" | "ops";
+  | "investorReporting" | "exports" | "workflow" | "ops"
+  | "taOversight" | "middleOfficeOversight" | "backOfficeOversight";
 
 export interface Holding {
   id: string;

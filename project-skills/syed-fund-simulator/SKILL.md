@@ -56,8 +56,8 @@ http://127.0.0.1:5173
 If local access control is enabled, `.env` should contain:
 
 ```text
-VITE_CLERK_PUBLISHABLE_KEY=pk_test_cHJlY2lvdXMtcHJhd24tNTYuY2xlcmsuYWNjb3VudHMuZGV2JA
-VITE_APPROVED_EMAILS=anj7214@gmail.com
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_your_key_here
+VITE_APPROVED_EMAILS=your-approved-email@example.com
 ```
 
 Do not commit real secret keys.

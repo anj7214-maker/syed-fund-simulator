@@ -27,6 +27,29 @@ Open the local URL shown by Vite.
 npm run build
 ```
 
+## Enterprise backend foundation
+
+This repository now includes the first institutional backend foundation:
+
+- `server/index.mjs` - local API for health, tenant bootstrap, maker-checker approvals, immutable audit events, and Copilot orchestration stub
+- `db/schema.sql` - PostgreSQL tenant/fund/break/workflow/audit/ingestion schema with row-level security and hash-chained audit trail
+- `docker-compose.yml` - local API + PostgreSQL stack
+- `infra/aws` - customer VPC Terraform starter
+
+Run the backend API locally:
+
+```bash
+npm run api
+```
+
+Run API + PostgreSQL locally:
+
+```bash
+docker compose up --build
+```
+
+See `docs/ENTERPRISE_SAAS_FOUNDATION.md` for the implementation notes and next milestone.
+
 ## Deployment And Access
 
 Public app link:

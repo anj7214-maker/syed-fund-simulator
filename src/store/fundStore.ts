@@ -4,7 +4,7 @@ import { get, set } from "idb-keyval";
 import { sampleAccruals, sampleActivities, sampleBreaks, sampleCashRecon, sampleCorporateActions, sampleDerivatives, sampleFundSetup, sampleFx, sampleHoldings, sampleInvestors, samplePositionRecon, sampleSecurityMaster, sampleTrades, sampleUploads } from "../data/sampleData";
 import { recalculate } from "../engine/recalc";
 import { applyScenarioEffect, createImpactSnapshot, scenarioCatalog } from "../engine/scenarioEngine";
-import { AuditEvent, BreakItem, CapitalActivity, CashReconRow, CopilotContext, CorporateAction, Derivative, FundSetup, FxRate, Holding, ImpactSnapshot, Investor, ModuleId, PositionReconRow, ScenarioRun, SecurityMaster, Trade, TrainingMode, UploadBatch, UploadModule, ValidationIssue } from "../types";
+import { AuditEvent, BreakItem, CapitalActivity, CashReconRow, CopilotContext, CorporateAction, Derivative, FundSetup, FxRate, Holding, ImpactSnapshot, Investor, JournalEntry, JournalLine, ModuleId, PositionReconRow, SandboxRole, SandboxTrack, ScenarioRun, SecurityMaster, Trade, TrainingMode, UploadBatch, UploadModule, ValidationIssue } from "../types";
 
 const idbStorage = {
   getItem: async (name: string) => (await get(name)) ?? null,
@@ -24,6 +24,19 @@ const impacts: Record<string, ModuleId[]> = {
   cashRecon: ["cashRecon", "reconBreaks", "exceptions", "nav", "audit", "ops"],
   positionRecon: ["positionRecon", "reconBreaks", "exceptions", "holdings", "nav", "audit", "ops"],
   corporateAction: ["corporateActions", "dividends", "coupons", "gl", "trialBalance", "pl", "balanceSheet", "nav", "cashRecon", "audit", "ops"],
+  backendGl: ["workflow", "gl", "trialBalance", "pl", "balanceSheet", "nav", "reconBreaks", "exceptions", "audit", "ops"],
+};
+
+type BackendPostingPayload = {
+  posting_id: string;
+  approval_id: string;
+  source_entity_type: string;
+  source_entity_id: string;
+  memo: string;
+  lines: Array<{ account: string; debit: number; credit: number }>;
+  nav_impact: number;
+  posted_by: string;
+  posted_at: string;
 };
 
 export interface FundState {
@@ -40,6 +53,10 @@ export interface FundState {
   uploads: UploadBatch[];
   learningMode: boolean;
   trainingMode: TrainingMode;
+  sandboxRole: SandboxRole;
+  sandboxTrack: SandboxTrack;
+  sandboxSlaMinutes: number;
+  sandboxTimeEvent: string;
   manualEditMode: boolean;
   aiPanelOpen: boolean;
   copilotContext: CopilotContext | null;
@@ -56,6 +73,8 @@ export interface FundState {
   derivatives: Derivative[];
   managementFeePct: number;
   performanceFeePct: number;
+  backendGlPostings: JournalEntry[];
+  backendNavAdjustments: number;
   auditTrail: AuditEvent[];
   flashed: Record<string, "up" | "down">;
   impactedModules: ModuleId[];
@@ -72,9 +91,13 @@ export interface FundState {
   updateFundSetup: (field: keyof FundSetup, value: string | number | boolean) => void;
   updateBreak: (id: string, field: keyof BreakItem, value: string | number) => void;
   updateWorkflow: (status: FundSetup["workflowStatus"]) => void;
+  applyBackendGlPosting: (posting: BackendPostingPayload) => void;
   processUpload: (module: UploadModule, sourceType: string, file: { name: string; text: string }) => void;
   toggleLearningMode: () => void;
   setTrainingMode: (mode: TrainingMode) => void;
+  setSandboxRole: (role: SandboxRole) => void;
+  setSandboxTrack: (track: SandboxTrack) => void;
+  triggerSandboxTimeEvent: (event: string) => void;
   toggleManualEditMode: () => void;
   setAiPanelOpen: (open: boolean) => void;
   explainContext: (context: CopilotContext) => void;
@@ -99,6 +122,32 @@ function audit(field: string, oldValue: unknown, newValue: unknown, impactedModu
   };
 }
 
+function categoryForAccount(account: string): JournalLine["category"] {
+  const value = account.toLowerCase();
+  if (value.includes("payable") || value.includes("liability")) return "Liability";
+  if (value.includes("capital") || value.includes("partner")) return "Capital";
+  if (value.includes("income") || value.includes("gain")) return "Income";
+  if (value.includes("fee") || value.includes("expense") || value.includes("loss")) return "Expense";
+  return "Asset";
+}
+
+function postingToJournalEntry(posting: BackendPostingPayload): JournalEntry {
+  return {
+    id: `JE-BE-${posting.posting_id.slice(0, 8)}`,
+    date: posting.posted_at.slice(0, 10),
+    source: "Backend Workflow Approval Queue",
+    memo: posting.memo,
+    auto: true,
+    lines: posting.lines.map((line) => ({
+      account: line.account,
+      category: categoryForAccount(line.account),
+      debit: line.debit,
+      credit: line.credit,
+      ref: posting.approval_id,
+    })),
+  };
+}
+
 export const useFundStore = create<FundState>()(
   persist(
     (set) => ({
@@ -113,8 +162,12 @@ export const useFundStore = create<FundState>()(
       positionRecon: samplePositionRecon,
       breaks: sampleBreaks,
       uploads: sampleUploads,
-      learningMode: true,
-      trainingMode: "Sandbox",
+      learningMode: false,
+      trainingMode: "Live Mode",
+      sandboxRole: "Analyst (0-4 Years)",
+      sandboxTrack: "Reconciliation Operations",
+      sandboxSlaMinutes: 105,
+      sandboxTimeEvent: "Base T+0 operations window",
       manualEditMode: true,
       aiPanelOpen: true,
       copilotContext: null,
@@ -131,6 +184,8 @@ export const useFundStore = create<FundState>()(
       derivatives: sampleDerivatives,
       managementFeePct: 0.015,
       performanceFeePct: 0.2,
+      backendGlPostings: [],
+      backendNavAdjustments: 0,
       auditTrail: [],
       flashed: {},
       impactedModules: [],
@@ -274,6 +329,42 @@ export const useFundStore = create<FundState>()(
         flashed: { workflow: "up" },
         auditTrail: [audit("NAV workflow status", s.fundSetup.workflowStatus, status, ["workflow", "nav", "audit", "ops"], "Maker-checker workflow"), ...s.auditTrail].slice(0, 100),
       })),
+      applyBackendGlPosting: (posting) => set((s) => {
+        const alreadyPosted = s.backendGlPostings.some((entry) => entry.id === `JE-BE-${posting.posting_id.slice(0, 8)}`);
+        if (alreadyPosted) return {};
+        const before = createImpactSnapshot(s);
+        const journal = postingToJournalEntry(posting);
+        const nextState = {
+          ...s,
+          backendGlPostings: [journal, ...s.backendGlPostings],
+          backendNavAdjustments: s.backendNavAdjustments + posting.nav_impact,
+        };
+        const after = createImpactSnapshot(nextState);
+        return {
+          backendGlPostings: nextState.backendGlPostings,
+          backendNavAdjustments: nextState.backendNavAdjustments,
+          activeScenarioImpact: { before, after },
+          manualBaseline: after,
+          impactedModules: impacts.backendGl,
+          flashed: { ...s.flashed, "backend-gl": posting.nav_impact >= 0 ? "up" : "down", nav: posting.nav_impact >= 0 ? "up" : "down" },
+          auditTrail: [audit(
+            `Backend GL posting ${posting.posting_id.slice(0, 8)}`,
+            `NAV ${before.nav.toLocaleString("en-US")}`,
+            `NAV ${after.nav.toLocaleString("en-US")}`,
+            impacts.backendGl,
+            "Backend approval posted to GL/NAV",
+          ), ...s.auditTrail].slice(0, 100),
+          copilotContext: {
+            tab: "workflow",
+            title: "Approved workflow posted to GL",
+            summary: `${posting.memo} was posted by ${posting.posted_by}. The simulator consumed the backend journal and recalculated GL, trial balance, P&L, balance sheet, NAV and exception status.`,
+            accountingImpact: `Debit ${posting.lines[0]?.account ?? "N/A"} and credit ${posting.lines[1]?.account ?? "N/A"} for NAV impact ${posting.nav_impact.toLocaleString("en-US")}.`,
+            navImpact: `NAV moved from ${before.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })} to ${after.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })}.`,
+            recommendedAction: "Review General Ledger, Trial Balance, P&L, Balance Sheet and NAV Package before NAV release.",
+            relatedEntries: ["Workflow Approval Queue", "General Ledger", "Trial Balance", "P&L Statement", "NAV Package"],
+          },
+        };
+      }),
       processUpload: (module, sourceType, file) => set((s) => {
         const lines = file.text.trim().split(/\r?\n/).filter(Boolean);
         const extension = file.name.split(".").pop()?.toLowerCase();
@@ -337,9 +428,53 @@ export const useFundStore = create<FundState>()(
       setTrainingMode: (trainingMode) => set((s) => ({
         trainingMode,
         learningMode: trainingMode === "Sandbox",
-        aiPanelOpen: true,
+        aiPanelOpen: trainingMode === "Sandbox" ? true : s.aiPanelOpen,
         auditTrail: [audit("Operating mode", s.trainingMode, trainingMode, ["scenario", "aiCopilot", "audit"], "Mode switch"), ...s.auditTrail].slice(0, 100),
       })),
+      setSandboxRole: (sandboxRole) => set((s) => ({
+        sandboxRole,
+        impactedModules: ["sandboxCommand", "workflow", "exceptions", "audit"],
+        auditTrail: [audit("Sandbox role", s.sandboxRole, sandboxRole, ["sandboxCommand", "workflow", "audit"], "Sandbox role selection"), ...s.auditTrail].slice(0, 100),
+      })),
+      setSandboxTrack: (sandboxTrack) => set((s) => ({
+        sandboxTrack,
+        impactedModules: ["sandboxCommand", "scenario", "exceptions", "audit"],
+        auditTrail: [audit("Sandbox track", s.sandboxTrack, sandboxTrack, ["sandboxCommand", "scenario", "audit"], "Sandbox track selection"), ...s.auditTrail].slice(0, 100),
+      })),
+      triggerSandboxTimeEvent: (event) => set((s) => {
+        const minutes = event.includes("Cutoff") ? 42 : event.includes("Month-End") ? 75 : event.includes("Investor") ? 48 : 25;
+        const generatedBreak: BreakItem = {
+          id: `TIME-${Math.floor(1000 + Math.random() * 9000)}`,
+          breakType: event.includes("Investor") ? "NAV Variance" : "Trade Settlement",
+          severity: event.includes("Escalation") ? "Critical" : "High",
+          aging: event.includes("T+1") ? 1 : 0,
+          owner: event.includes("Investor") ? "Transfer Agency" : "NAV Control",
+          navImpact: event.includes("Escalation") ? 1_250_000 : 420_000,
+          rootCause: `${event} triggered sandbox operational pressure.`,
+          status: "Open",
+          resolutionNotes: "Sandbox time-machine event. Investigate using real workflow tabs.",
+          escalationLevel: event.includes("Escalation") ? "L3" : "L2",
+          comments: [`${event} triggered from Sandbox Command Center`],
+          slaHours: Math.max(1, Math.round(minutes / 60)),
+        };
+        return {
+          sandboxTimeEvent: event,
+          sandboxSlaMinutes: minutes,
+          breaks: [generatedBreak, ...s.breaks],
+          impactedModules: ["sandboxCommand", "reconBreaks", "exceptions", "workflow", "nav", "audit"],
+          flashed: { sandbox: "down", scenario: "down" },
+          auditTrail: [audit("Sandbox time machine", s.sandboxTimeEvent, event, ["sandboxCommand", "reconBreaks", "workflow", "nav", "audit"], "Sandbox time pressure"), ...s.auditTrail].slice(0, 100),
+          copilotContext: {
+            tab: "sandboxCommand",
+            title: event,
+            summary: "Sandbox time pressure was injected into the live operational screens. Trainee must investigate breaks, workflow blockers, NAV readiness and evidence.",
+            accountingImpact: "No artificial quiz layer was created; the event appears through breaks, workflow status, NAV controls and audit trail.",
+            navImpact: `A simulated operational risk item with ${generatedBreak.navImpact.toLocaleString("en-US")} NAV impact was added.`,
+            recommendedAction: "Navigate to Reconciliation Breaks, Workflow Approval Queue, NAV Package and Audit Trail to clear the issue.",
+            relatedEntries: ["Sandbox Command Center", "Reconciliation Breaks", "Workflow Approval Queue", "NAV Package"],
+          },
+        };
+      }),
       toggleManualEditMode: () => set((s) => ({
         manualEditMode: !s.manualEditMode,
         auditTrail: [audit("Manual data edit mode", s.manualEditMode ? "Enabled" : "Disabled", !s.manualEditMode ? "Enabled" : "Disabled", ["editableFields", "audit"], "Manual data control"), ...s.auditTrail].slice(0, 100),
@@ -500,6 +635,8 @@ export const useFundStore = create<FundState>()(
           activities: sampleActivities,
           accruals: sampleAccruals,
           derivatives: sampleDerivatives,
+          backendGlPostings: [],
+          backendNavAdjustments: 0,
           managementFeePct: 0.015,
           performanceFeePct: 0.2,
         };
@@ -529,5 +666,9 @@ export const useFundStore = create<FundState>()(
 
 export const useRecalc = () => {
   const s = useFundStore();
-  return recalculate(s);
+  return recalculate({
+    ...s,
+    manualJournalEntries: s.backendGlPostings,
+    manualNavAdjustments: s.backendNavAdjustments,
+  });
 };

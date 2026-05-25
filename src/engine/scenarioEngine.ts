@@ -1,5 +1,5 @@
 import { recalculate } from "./recalc";
-import { BreakItem, CapitalActivity, Derivative, FxRate, Holding, ImpactSnapshot, Investor, ModuleId, ScenarioDefinition, ScenarioDifficulty, ScenarioFundType, Trade } from "../types";
+import { BreakItem, CapitalActivity, Derivative, FxRate, Holding, ImpactSnapshot, Investor, JournalEntry, ModuleId, ScenarioDefinition, ScenarioDifficulty, ScenarioFundType, Trade } from "../types";
 
 type ScenarioSeed = {
   name: string;
@@ -190,8 +190,16 @@ export function createImpactSnapshot(params: {
   managementFeePct: number;
   performanceFeePct: number;
   breaks: BreakItem[];
+  manualJournalEntries?: JournalEntry[];
+  backendGlPostings?: JournalEntry[];
+  manualNavAdjustments?: number;
+  backendNavAdjustments?: number;
 }) : ImpactSnapshot {
-  const r = recalculate(params);
+  const r = recalculate({
+    ...params,
+    manualJournalEntries: [...(params.manualJournalEntries ?? []), ...(params.backendGlPostings ?? [])],
+    manualNavAdjustments: (params.manualNavAdjustments ?? 0) + (params.backendNavAdjustments ?? 0),
+  });
   return {
     nav: r.netAssets,
     navPerShare: r.navPerShare,

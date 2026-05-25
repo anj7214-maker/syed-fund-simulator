@@ -125,6 +125,8 @@ export function recalculate(params: {
   managementFeePct: number;
   performanceFeePct: number;
   manualExceptions?: ExceptionItem[];
+  manualJournalEntries?: JournalEntry[];
+  manualNavAdjustments?: number;
 }): RecalcResult {
   const holdingsRaw = params.holdings.map((h) => ({ ...h, fxRate: params.fxRates.find((fx) => fx.base === h.currency)?.rate ?? h.fxRate }));
   const grossExposure = holdingsRaw.reduce((sum, h) => sum + Math.abs(signedValue(h)), 0);
@@ -179,7 +181,9 @@ export function recalculate(params: {
   const performanceProfit = Math.max(0, portfolioMv + derivativeMtm + netInvestorCash - hwmBase);
   const performanceFee = round(performanceProfit * params.performanceFeePct);
   const liabilities = round(managementFee + performanceFee + adminExpenses + Math.max(-derivativeMtm, 0));
-  const grossAssets = round(Math.max(portfolioMv, 0) + Math.max(derivativeMtm, 0) + derivativeCollateral + dividendIncome + interestIncome + corporateActionIncome + Math.max(netInvestorCash, 0));
+  const manualNavAdjustments = params.manualNavAdjustments ?? 0;
+  const adjustedPortfolioMv = portfolioMv + manualNavAdjustments;
+  const grossAssets = round(Math.max(adjustedPortfolioMv, 0) + Math.max(derivativeMtm, 0) + derivativeCollateral + dividendIncome + interestIncome + corporateActionIncome + Math.max(netInvestorCash, 0));
   const netAssets = round(grossAssets - liabilities);
   const sharesOutstanding = params.investors.reduce((sum, i) => sum + i.shares, 0);
   const navPerShare = sharesOutstanding ? round(netAssets / sharesOutstanding, 4) : 0;
@@ -191,6 +195,7 @@ export function recalculate(params: {
     ...corporateActionEntries(params.corporateActions ?? []),
     ...mtmEntries(unrealizedGains, fxGainLoss, params.derivatives),
     ...feeEntries(managementFee, performanceFee),
+    ...(params.manualJournalEntries ?? []),
   ];
   const trialMap = new Map<string, { account: string; category: string; debit: number; credit: number }>();
   gl.flatMap((je) => je.lines).forEach((line) => {
@@ -235,6 +240,7 @@ export function recalculate(params: {
       { line: "Dividend income", amount: round(dividendIncome) },
       { line: "Interest income", amount: round(interestIncome) },
       { line: "Corporate action income", amount: round(corporateActionIncome) },
+      { line: "Backend posted GL adjustments", amount: round(manualNavAdjustments) },
       { line: "FX gains/losses", amount: round(fxGainLoss) },
       { line: "Management fees", amount: -managementFee },
       { line: "Performance fees", amount: -performanceFee },
@@ -242,7 +248,7 @@ export function recalculate(params: {
       { line: "Broker fees", amount: -brokerFees },
     ],
     balanceSheet: [
-      { section: "Assets", line: "Investments at fair value", amount: round(Math.max(portfolioMv, 0)) },
+      { section: "Assets", line: "Investments at fair value", amount: round(Math.max(adjustedPortfolioMv, 0)) },
       { section: "Assets", line: "Investor capital cash", amount: round(Math.max(netInvestorCash, 0)) },
       { section: "Assets", line: "Derivative receivable and collateral", amount: round(Math.max(derivativeMtm, 0) + derivativeCollateral) },
       { section: "Assets", line: "Income receivable", amount: round(dividendIncome + interestIncome) },
@@ -257,6 +263,7 @@ export function recalculate(params: {
       { name: "Redemptions", value: -redemptions },
       { name: "Realized gains", value: round(realizedGains) },
       { name: "Unrealized gains", value: round(unrealizedGains) },
+      { name: "Posted GL adjustments", value: round(manualNavAdjustments) },
       { name: "Income", value: round(dividendIncome + interestIncome + fxGainLoss) },
       { name: "Expenses", value: -round(adminExpenses + brokerFees) },
       { name: "Fees", value: -round(managementFee + performanceFee) },

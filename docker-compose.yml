@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: syed-fund-postgres
+    environment:
+      POSTGRES_DB: syed_fund
+      POSTGRES_USER: syed_admin
+      POSTGRES_PASSWORD: syed_local_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - syed_fund_pg:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U syed_admin -d syed_fund"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: syed-fund-api
+    environment:
+      API_PORT: 8787
+      API_SERVICE_TOKEN: local-dev-token
+      API_CORS_ORIGIN: http://127.0.0.1:5173
+      DATABASE_URL: postgres://syed_admin:syed_local_password@postgres:5432/syed_fund
+    ports:
+      - "8787:8787"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  syed_fund_pg:

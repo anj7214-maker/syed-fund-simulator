@@ -10,9 +10,11 @@ import { useFundStore, useRecalc } from "./store/fundStore";
 import type { FundState } from "./store/fundStore";
 import { scenarioCatalog, scenariosForModule } from "./engine/scenarioEngine";
 import { CopilotContext, ModuleId, ScenarioDefinition, UploadModule } from "./types";
+import { institutionalApi } from "./services/institutionalApi";
 
 const modules: Array<{ id: ModuleId; label: string; icon: typeof Activity }> = [
   { id: "dashboard", label: "Executive Dashboard", icon: Gauge },
+  { id: "sandboxCommand", label: "Sandbox Command Center", icon: Brain },
   { id: "aiCopilot", label: "AI Copilot", icon: Bot },
   { id: "fund", label: "Fund Master Setup", icon: Landmark },
   { id: "structureComparison", label: "Fund Structure Comparison", icon: GitBranch },
@@ -55,6 +57,29 @@ const modules: Array<{ id: ModuleId; label: string; icon: typeof Activity }> = [
   { id: "middleOfficeOversight", label: "Middle Office NAV & Risk Oversight", icon: Gauge },
   { id: "backOfficeOversight", label: "Back Office Operational Control Center", icon: ShieldAlert },
 ];
+
+type NavGroup = {
+  title: string;
+  subtitle: string;
+  icon: typeof Activity;
+  modules: ModuleId[];
+};
+
+const navGroups: NavGroup[] = [
+  { title: "Executive Control Room", subtitle: "NAV release, blockers, operating health", icon: Gauge, modules: ["dashboard", "ops"] },
+  { title: "Sandbox Command Center", subtitle: "Practice scenarios and guided simulation", icon: Brain, modules: ["sandboxCommand", "scenario"] },
+  { title: "Portfolio Operations", subtitle: "Setup, securities, trades, pricing, FX", icon: FileSpreadsheet, modules: ["fund", "structureComparison", "holdings", "trades", "security", "pricing", "fx", "corporateActions", "dividends", "coupons", "otc", "mtm"] },
+  { title: "Reconciliation", subtitle: "Cash, positions, breaks, exceptions", icon: GitBranch, modules: ["cashRecon", "positionRecon", "reconBreaks", "exceptions"] },
+  { title: "Accounting & NAV", subtitle: "GL, TB, P&L, balance sheet, NAV", icon: Calculator, modules: ["gl", "trialBalance", "pl", "balanceSheet", "nav", "expenses"] },
+  { title: "Investor Services", subtitle: "Capital activity, TA, investor reporting", icon: Users, modules: ["capital", "subsReds", "investorReporting", "taOversight"] },
+  { title: "Fees & Waterfall", subtitle: "Management, performance, equalization, carry", icon: Sigma, modules: ["mgmtFees", "perfFees", "equalization", "waterfall"] },
+  { title: "Risk & Oversight", subtitle: "Risk, stress, middle/back office quality", icon: ShieldAlert, modules: ["risk", "stress", "middleOfficeOversight", "backOfficeOversight"] },
+  { title: "Workflow & Audit", subtitle: "Maker-checker, audit, manual controls", icon: BookOpenCheck, modules: ["workflow", "audit", "editableFields"] },
+  { title: "Reporting & Export", subtitle: "NAV packs and operations packs", icon: Download, modules: ["exports"] },
+  { title: "AI Copilot", subtitle: "Context-aware operations assistant", icon: Bot, modules: ["aiCopilot"] },
+];
+
+const moduleById = Object.fromEntries(modules.map((m) => [m.id, m])) as Record<ModuleId, typeof modules[number]>;
 
 const compactMoney = (n: number) => {
   const abs = Math.abs(n);
@@ -1059,6 +1084,24 @@ function generateCopilotReply(question: string, args: {
 
 function Sidebar() {
   const { activeModule, setActiveModule, collapsed, toggleSidebar, impactedModules } = useFundStore();
+  const activeGroup = navGroups.find((group) => group.modules.includes(activeModule))?.title ?? navGroups[0].title;
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set([activeGroup]));
+  useEffect(() => {
+    setOpenGroups((current) => {
+      if (current.has(activeGroup)) return current;
+      const next = new Set(current);
+      next.add(activeGroup);
+      return next;
+    });
+  }, [activeGroup]);
+  const toggleGroup = (group: NavGroup) => {
+    setOpenGroups((current) => {
+      const next = new Set(current);
+      next.has(group.title) ? next.delete(group.title) : next.add(group.title);
+      return next;
+    });
+    if (!group.modules.includes(activeModule)) setActiveModule(group.modules[0]);
+  };
   return (
     <aside className={`sidebar ${collapsed ? "w-[76px]" : "w-[288px]"}`}>
       <div className="brand">
@@ -1067,16 +1110,37 @@ function Sidebar() {
         <button className="icon-btn ml-auto" onClick={toggleSidebar} title="Collapse sidebar">{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
       </div>
       <nav className="nav-list">
-        {modules.map((m) => {
-          const Icon = m.icon;
-          const active = activeModule === m.id;
-          const impacted = impactedModules.includes(m.id);
+        {navGroups.map((group) => {
+          const GroupIcon = group.icon;
+          const groupActive = group.modules.includes(activeModule);
+          const groupImpacted = group.modules.some((id) => impactedModules.includes(id));
+          const groupOpen = openGroups.has(group.title);
           return (
-            <button key={m.id} onClick={() => setActiveModule(m.id)} className={`nav-item ${active ? "active" : ""} ${impacted ? "impacted" : ""}`} title={m.label}>
-              <Icon size={16} />
-              {!collapsed && <span>{m.label}</span>}
-              {impacted && <i />}
-            </button>
+            <div key={group.title} className={`nav-group ${groupActive ? "active" : ""} ${groupOpen ? "open" : ""}`}>
+              <button className={`nav-group-button ${groupActive ? "active" : ""} ${groupImpacted ? "impacted" : ""}`} onClick={() => toggleGroup(group)} title={group.title}>
+                <GroupIcon size={16} />
+                {!collapsed && <>
+                  <span><b>{group.title}</b><small>{group.subtitle}</small></span>
+                  <ChevronRight size={14} className="nav-chevron" />
+                </>}
+                {collapsed && groupImpacted && <i />}
+              </button>
+              {!collapsed && groupOpen && <div className="nav-children">
+                {group.modules.map((id) => {
+                  const m = moduleById[id];
+                  const Icon = m.icon;
+                  const active = activeModule === m.id;
+                  const impacted = impactedModules.includes(m.id);
+                  return (
+                    <button key={m.id} onClick={() => setActiveModule(m.id)} className={`nav-item ${active ? "active" : ""} ${impacted ? "impacted" : ""}`} title={m.label}>
+                      <Icon size={15} />
+                      <span>{m.label}</span>
+                      {impacted && <i />}
+                    </button>
+                  );
+                })}
+              </div>}
+            </div>
           );
         })}
       </nav>
@@ -1085,7 +1149,7 @@ function Sidebar() {
 }
 
 function Header() {
-  const { fundMode, setFundMode, reset, trainingMode, setTrainingMode, setAiPanelOpen, activeScenarioImpact, breaks } = useFundStore();
+  const { fundMode, setFundMode, reset, trainingMode, setTrainingMode, setAiPanelOpen, activeScenarioImpact, breaks, setActiveModule } = useFundStore();
   const r = useRecalc();
   const active = useFundStore((s) => s.activeModule);
   const label = modules.find((m) => m.id === active)?.label;
@@ -1111,7 +1175,10 @@ function Header() {
         <div className="status-pill bad">Open breaks {openBreakCount(useFundStore.getState())}</div>
         <div className={`status-pill ${mat.tone}`}>Materiality {mat.label}</div>
         <div className="status-pill">Updated {pulse.data?.at ?? "live"}</div>
-        <button className={`terminal-button ${trainingMode === "Sandbox" ? "selected" : ""}`} onClick={() => setTrainingMode(trainingMode === "Sandbox" ? "Live Mode" : "Sandbox")}><Brain size={15} /> {trainingMode}</button>
+        <div className="environment-switch">
+          <button className={trainingMode === "Live Mode" ? "selected" : ""} onClick={() => setTrainingMode("Live Mode")}>Live Mode</button>
+          <button className={trainingMode === "Sandbox" ? "selected" : ""} onClick={() => { setTrainingMode("Sandbox"); setActiveModule("sandboxCommand"); }}>Sandbox</button>
+        </div>
         <button className="terminal-button" onClick={() => setAiPanelOpen(true)}><Bot size={15} /> AI Copilot</button>
         <button className="terminal-button" onClick={reset}><RefreshCw size={15} /> Reset book</button>
         <UserButton afterSignOutUrl="/" />
@@ -1153,19 +1220,283 @@ function LearningHint({ text }: { text: string }) {
   return <div className="learning-hint"><Brain size={15} /><span>{text}</span></div>;
 }
 
+type OpsLens = "Analyst" | "SME" | "Manager" | "Leadership";
+
+function navReadiness(store: FundState, r: ReturnType<typeof useRecalc>) {
+  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const criticalBreaks = openBreaks.filter((b) => b.severity === "Critical" || b.severity === "High");
+  const openExceptions = r.exceptions.filter((e) => e.status !== "Cleared");
+  const failedTrades = store.trades.filter((t) => t.status === "Failed").length;
+  const stalePrices = store.holdings.filter((h) => Date.now() - new Date(h.lastPriceTime).getTime() > 24 * 60 * 60 * 1000).length;
+  const tbBreak = Math.abs(r.trialBalance.reduce((sum, row) => sum + row.debit - row.credit, 0));
+  const unresolvedImpact = openBreaks.reduce((sum, b) => sum + Math.abs(b.navImpact), 0);
+  const mat = materiality(r.netAssets, unresolvedImpact);
+  const blocked = criticalBreaks.length > 0 || stalePrices > 0 || tbBreak > 1 || mat.label === "Critical";
+  return { openBreaks, criticalBreaks, openExceptions, failedTrades, stalePrices, tbBreak, unresolvedImpact, mat, blocked };
+}
+
+function moduleForBreak(breakType: string): ModuleId {
+  if (breakType.includes("Cash")) return "cashRecon";
+  if (breakType.includes("Position")) return "positionRecon";
+  if (breakType.includes("Pricing")) return "pricing";
+  if (breakType.includes("FX")) return "fx";
+  if (breakType.includes("Corporate")) return "corporateActions";
+  if (breakType.includes("Trade")) return "trades";
+  if (breakType.includes("GL")) return "gl";
+  return "nav";
+}
+
+function opsPackRows(kind: "break" | "scenario" | "performance" | "checklist" | "interview", store: FundState, r: ReturnType<typeof useRecalc>): ExportRow[] {
+  const readiness = navReadiness(store, r);
+  if (kind === "break") return readiness.openBreaks.map((b) => ({
+    "Break ID": b.id,
+    Type: b.breakType,
+    Severity: b.severity,
+    Aging: `${b.aging}d`,
+    Owner: b.owner,
+    "NAV Impact": b.navImpact,
+    "Root Cause": b.rootCause,
+    Status: b.status,
+    "Evidence Required": "Source file, internal value, custodian/PB value, calculation support, reviewer signoff",
+    "Proposed Resolution": b.resolutionNotes,
+    "Approval Trail": `Analyst -> SME -> ${b.severity === "Critical" || b.severity === "High" ? "NAV Manager" : "Reviewer"}`,
+  }));
+  if (kind === "scenario") return store.scenarioRuns.map((run) => ({
+    Run: run.id,
+    Scenario: run.scenarioName,
+    Module: run.module,
+    Mode: run.trainingMode,
+    Status: run.status,
+    Score: run.score,
+    Started: run.startedAt,
+    Completed: run.completedAt ?? "",
+    "Learner Response": run.learnerResponse ?? "",
+    "Learning Notes": run.evaluationNotes.join(" | "),
+  }));
+  if (kind === "performance") return [
+    { Metric: "Operational Accuracy", Value: `${Math.max(0, 100 - readiness.openBreaks.length * 4)}%`, Evidence: `${readiness.openBreaks.length} open break(s)` },
+    { Metric: "Break Resolution Speed", Value: readiness.openBreaks.some((b) => b.aging > 2) ? "Needs improvement" : "On track", Evidence: `${readiness.openBreaks.filter((b) => b.aging > 2).length} aged item(s)` },
+    { Metric: "Escalation Quality", Value: readiness.criticalBreaks.length ? "Escalation required" : "Stable", Evidence: `${readiness.criticalBreaks.length} high/critical break(s)` },
+    { Metric: "Audit Documentation", Value: store.auditTrail.length ? "Evidence captured" : "No audit yet", Evidence: `${store.auditTrail.length} audit event(s)` },
+    { Metric: "Signoff Readiness", Value: readiness.blocked ? "Blocked" : "Ready", Evidence: `Materiality ${readiness.mat.label}` },
+  ];
+  if (kind === "checklist") return [
+    { Step: "Load Files", Owner: "Ops Intake", Status: "Completed", "Action Required": "Confirm PB/custodian/pricing files loaded" },
+    { Step: "Validate Data", Owner: "Data Control", Status: readiness.stalePrices ? "Incomplete" : "Complete", "Action Required": readiness.stalePrices ? "Resolve stale/missing prices" : "No action" },
+    { Step: "Run Recons", Owner: "Reconciliation", Status: readiness.openBreaks.length ? "Incomplete" : "Complete", "Action Required": `${readiness.openBreaks.length} break(s) require action` },
+    { Step: "Review Breaks", Owner: "SME / QA", Status: readiness.criticalBreaks.length ? "Escalate" : "Complete", "Action Required": readiness.criticalBreaks.length ? "Escalate high materiality items" : "No action" },
+    { Step: "Post Journals", Owner: "Fund Accounting", Status: readiness.tbBreak > 1 ? "Incomplete" : "Complete", "Action Required": readiness.tbBreak > 1 ? "Clear TB imbalance" : "No action" },
+    { Step: "Review NAV", Owner: "NAV Manager", Status: readiness.blocked ? "Hold" : "Ready", "Action Required": readiness.blocked ? "Clear blockers" : "Final review" },
+    { Step: "Approve", Owner: "Controller", Status: readiness.blocked ? "Blocked" : "Ready", "Action Required": "Check evidence and digital signoff" },
+    { Step: "Publish", Owner: "Client Reporting", Status: readiness.blocked ? "Blocked" : "Ready", "Action Required": "Send investor pack after approval" },
+  ];
+  return store.scenarioRuns.map((run) => ({
+    Scenario: run.scenarioName,
+    Question: "Explain source issue, NAV impact, failed control, GL treatment and required approval.",
+    "Candidate Answer": run.learnerResponse ?? "Not submitted",
+    Score: run.score,
+    Result: run.status,
+    "Model Notes": run.evaluationNotes.join(" | "),
+  }));
+}
+
+function TopNavIssues({ readiness }: { readiness: ReturnType<typeof navReadiness> }) {
+  const setActiveModule = useFundStore((s) => s.setActiveModule);
+  const issues = [...readiness.openBreaks].sort((a, b) => Math.abs(b.navImpact) - Math.abs(a.navImpact)).slice(0, 5);
+  return (
+    <section className="panel">
+      <PanelTitle title="Top 5 NAV-Impacting Issues" right="Highest materiality first" />
+      <div className="issue-list">
+        {issues.map((b) => <button key={b.id} onClick={() => setActiveModule(moduleForBreak(b.breakType))}>
+          <span className={`tag ${b.severity === "Critical" || b.severity === "High" ? "bad" : b.severity === "Medium" ? "warn" : "good"}`}>{b.severity}</span>
+          <b>{b.id} - {fmt(b.navImpact, true)}</b>
+          <small>{b.owner} / {b.aging}d / {b.rootCause}</small>
+        </button>)}
+        {!issues.length && <div className="empty-state">No NAV-impacting issues open.</div>}
+      </div>
+    </section>
+  );
+}
+
+function OwnershipSlaDashboard({ readiness }: { readiness: ReturnType<typeof navReadiness> }) {
+  const owners = Array.from(new Set(readiness.openBreaks.map((b) => b.owner)));
+  const rows = owners.map((owner) => {
+    const items = readiness.openBreaks.filter((b) => b.owner === owner);
+    const navImpact = items.reduce((sum, b) => sum + Math.abs(b.navImpact), 0);
+    const slaBreaches = items.filter((b) => b.aging * 24 > b.slaHours).length;
+    return { Owner: owner, "Open Items": items.length, "SLA Breaches": slaBreaches, "NAV Impact": fmt(navImpact, true), "Action Required": slaBreaches ? "Escalate aged breaks" : "Continue investigation" };
+  });
+  return (
+    <section className="panel">
+      <PanelTitle title="Who Owns What" right="Ownership, aging and SLA breach view" />
+      <SimpleRows rows={rows} empty="No open ownership pressure." />
+    </section>
+  );
+}
+
+function DailyNavWorkflow({ readiness }: { readiness: ReturnType<typeof navReadiness> }) {
+  const steps = [
+    { step: "Load Files", owner: "Ops Intake", status: "Completed", detail: "PB, custodian, pricing and investor files available" },
+    { step: "Validate Data", owner: "Data Control", status: readiness.stalePrices ? "Escalated" : "Completed", detail: readiness.stalePrices ? `${readiness.stalePrices} stale price(s)` : "Reference, price and FX checks clean" },
+    { step: "Run Recons", owner: "Reconciliation", status: readiness.openBreaks.length ? "In Progress" : "Completed", detail: `${readiness.openBreaks.length} open break(s)` },
+    { step: "Review Breaks", owner: "SME / QA", status: readiness.criticalBreaks.length ? "Escalated" : readiness.openBreaks.length ? "In Progress" : "Completed", detail: `${readiness.criticalBreaks.length} high-risk item(s)` },
+    { step: "Post Journals", owner: "Fund Accounting", status: readiness.tbBreak > 1 ? "In Progress" : "Completed", detail: readiness.tbBreak > 1 ? "TB variance under review" : "TB balanced" },
+    { step: "Review NAV", owner: "NAV Manager", status: readiness.blocked ? "Pending" : "Completed", detail: `Materiality ${readiness.mat.label}` },
+    { step: "Approve", owner: "Controller", status: readiness.blocked ? "Blocked" : "Ready", detail: readiness.blocked ? "Open blockers remain" : "Ready for signoff" },
+    { step: "Publish", owner: "Client Reporting", status: readiness.blocked ? "Blocked" : "Ready", detail: readiness.blocked ? "Release held" : "Pack can be sent" },
+  ];
+  return (
+    <section className="panel full">
+      <PanelTitle title="Daily NAV Production Workflow" right="Load -> validate -> reconcile -> approve -> publish" />
+      <div className="workflow-lane">
+        {steps.map((s, index) => <div key={s.step} className={`workflow-step ${s.status.toLowerCase().replace(/\s+/g, "-")}`}>
+          <span>{String(index + 1).padStart(2, "0")}</span>
+          <b>{s.step}</b>
+          <small>{s.owner}</small>
+          <p>{s.detail}</p>
+          <em>{s.status}</em>
+        </div>)}
+      </div>
+    </section>
+  );
+}
+
+function NavMovementExplainer() {
+  const store = useFundStore();
+  const r = useRecalc();
+  const rows = navMovementBridgeRows(store, r);
+  const movementNotes: Record<string, string> = {
+    Subscriptions: "Approved subscriptions increase investor capital and cash before share issuance validation.",
+    Redemptions: "Approved redemptions reduce capital or create a redemption payable depending on workflow status.",
+    "Realized Gain/Loss": "Closed trades and disposal events flow through realized P&L.",
+    "Unrealized Gain/Loss": "Open holdings, pricing changes and MTM movements revalue the portfolio.",
+    Income: "Dividend and interest accruals increase NAV when entitlement is valid.",
+    Expenses: "Operating, admin, broker and financing expenses reduce NAV.",
+    "Management Fees": "Daily fee accrual reduces investor capital and creates fee payable.",
+    "Performance Fees": "Incentive allocation applies only when hurdle/HWM eligibility is met.",
+    "FX Impact": "Local currency holdings are translated into base NAV through the FX matrix.",
+  };
+  const explainContext = useFundStore((s) => s.explainContext);
+  const topDrivers = [...rows]
+    .filter((row) => row.Component !== "Prior NAV" && row.Component !== "Current NAV")
+    .sort((a, b) => Math.abs(Number(b.Amount)) - Math.abs(Number(a.Amount)))
+    .slice(0, 5);
+  return (
+    <section className="panel">
+      <PanelTitle title="Why Did NAV Move?" right="Top daily movement drivers" />
+      <div className="nav-explain-list">
+        {topDrivers.map((row) => <div key={row.Component}>
+          <span>{row.Component}</span>
+          <b className={Number(row.Amount) >= 0 ? "text-good" : "text-bad"}>{fmt(Number(row.Amount), true)}</b>
+          <small>{movementNotes[row.Component] ?? "Movement flows into NAV through the central recalculation engine."}</small>
+        </div>)}
+      </div>
+      <button className="terminal-button selected" onClick={() => explainContext({
+        tab: "nav",
+        title: "Why did NAV move?",
+        summary: `Current NAV is ${fmt(r.netAssets, true)}. Main drivers are ${topDrivers.map((x) => `${x.Component} ${fmt(Number(x.Amount), true)}`).join(", ")}.`,
+        accountingImpact: "The bridge links subscriptions, redemptions, realized and unrealized P&L, income, fees, FX, and backend GL postings.",
+        navImpact: `NAV/share is ${r.navPerShare.toFixed(4)} after recalculation.`,
+        recommendedAction: "Review price moves, FX translation, open breaks, fee accruals and workflow approvals before release.",
+        relatedEntries: ["NAV Package", "P&L Statement", "General Ledger", "Break Management"],
+      })}><Bot size={15} /> AI Explain NAV Movement</button>
+    </section>
+  );
+}
+
+function RoleBasedLens({ readiness }: { readiness: ReturnType<typeof navReadiness> }) {
+  const [lens, setLens] = useState<OpsLens>("Leadership");
+  const r = useRecalc();
+  const store = useFundStore();
+  const lensRows: Record<OpsLens, Array<Record<string, ReactNode>>> = {
+    Analyst: readiness.openBreaks.slice(0, 6).map((b) => ({ Priority: b.severity, Task: b.rootCause, Owner: b.owner, "NAV Impact": fmt(b.navImpact, true), Action: "Investigate evidence and update notes" })),
+    SME: r.exceptions.slice(0, 6).map((e) => ({ Priority: e.severity, Task: e.message, Owner: e.owner, Status: e.status, Action: "Validate root cause and materiality" })),
+    Manager: [
+      { Area: "Break Queue", Status: `${readiness.openBreaks.length} open`, Risk: readiness.mat.label, Action: "Reassign aging or high impact items" },
+      { Area: "Failed Trades", Status: `${readiness.failedTrades} failed`, Risk: readiness.failedTrades ? "Medium" : "Low", Action: "Push broker/custodian follow-up" },
+      { Area: "Workflow", Status: store.fundSetup.workflowStatus, Risk: readiness.blocked ? "Blocked" : "Ready", Action: "Confirm maker-checker evidence" },
+      { Area: "Pricing", Status: `${readiness.stalePrices} stale`, Risk: readiness.stalePrices ? "High" : "Low", Action: "Request independent price support" },
+    ],
+    Leadership: [
+      { Question: "Can NAV be released?", Answer: readiness.blocked ? "No - release blocked" : "Yes - ready for signoff", Evidence: readiness.blocked ? "Critical controls remain open" : "No material blockers" },
+      { Question: "What is the biggest issue?", Answer: readiness.openBreaks[0]?.rootCause ?? "No open break", Evidence: readiness.openBreaks[0] ? fmt(readiness.openBreaks[0].navImpact, true) : "N/A" },
+      { Question: "Operational health", Answer: readiness.mat.label, Evidence: `${readiness.openBreaks.length} break(s), ${readiness.openExceptions.length} exception(s)` },
+      { Question: "Who needs attention?", Answer: readiness.openBreaks[0]?.owner ?? "No owner pressure", Evidence: readiness.criticalBreaks.length ? "High-risk break ownership required" : "Business-as-usual" },
+    ],
+  };
+  return (
+    <section className="panel wide">
+      <PanelTitle title="Role-Based Operating Lens" right="Same book, different GCC leadership view" />
+      <div className="lens-tabs">
+        {(["Analyst", "SME", "Manager", "Leadership"] as OpsLens[]).map((item) => <button key={item} className={lens === item ? "selected" : ""} onClick={() => setLens(item)}>{item}</button>)}
+      </div>
+      <SimpleRows rows={lensRows[lens]} />
+    </section>
+  );
+}
+
+function BreakEvidencePack({ readiness }: { readiness: ReturnType<typeof navReadiness> }) {
+  const store = useFundStore();
+  const topBreak = [...readiness.openBreaks].sort((a, b) => Math.abs(b.navImpact) - Math.abs(a.navImpact))[0];
+  const explainContext = useFundStore((s) => s.explainContext);
+  if (!topBreak) return <section className="panel"><PanelTitle title="Break Evidence Pack" right="No material breaks" /><div className="empty-state">No open break requires evidence.</div></section>;
+  const relatedPosition = store.positionRecon.find((p) => topBreak.rootCause.includes(p.ticker) || topBreak.id.includes(p.ticker));
+  const relatedCash = store.cashRecon.find((c) => topBreak.breakType === "Cash" && Math.abs(c.internalLedgerCash - c.custodianCash) > 0);
+  return (
+    <section className="panel">
+      <PanelTitle title="Break Evidence Pack" right={topBreak.id} />
+      <div className="evidence-pack">
+        <div><span>Source Issue</span><b>{topBreak.rootCause}</b></div>
+        <div><span>Internal Value</span><b>{relatedPosition ? num(relatedPosition.internalPosition) : relatedCash ? fmt(relatedCash.internalLedgerCash, true) : "Under review"}</b></div>
+        <div><span>External Value</span><b>{relatedPosition ? num(relatedPosition.custodianPosition) : relatedCash ? fmt(relatedCash.custodianCash, true) : "Awaiting file"}</b></div>
+        <div><span>NAV Impact</span><b>{fmt(topBreak.navImpact, true)}</b></div>
+        <div><span>Owner / SLA</span><b>{topBreak.owner} / {topBreak.slaHours}h</b></div>
+        <div><span>Resolution</span><b>{topBreak.resolutionNotes}</b></div>
+      </div>
+      <button className="terminal-button" onClick={() => explainContext({
+        tab: "exceptions",
+        title: `Evidence pack ${topBreak.id}`,
+        summary: topBreak.rootCause,
+        accountingImpact: `Break type ${topBreak.breakType} may require adjustment journal or documented no-posting decision.`,
+        navImpact: `Estimated NAV impact ${fmt(topBreak.navImpact, true)}.`,
+        recommendedAction: "Attach source evidence, confirm internal versus external value, document root cause, then route through maker-checker approval.",
+        relatedEntries: ["Break Evidence Pack", "Reconciliation Breaks", "Workflow Approval Queue", "Audit Trail"],
+      })}><MessageSquare size={15} /> Prepare Resolution Note</button>
+    </section>
+  );
+}
+
 function Dashboard() {
   const r = useRecalc();
   const store = useFundStore();
+  const readiness = navReadiness(store, r);
   return (
     <div className="grid-layout">
+      <section className="panel full control-room-hero">
+        <div>
+          <span>Executive Morning Control Room</span>
+          <h2>{readiness.blocked ? "NAV release requires attention" : "NAV release is signoff-ready"}</h2>
+          <p>{readiness.blocked ? "Material breaks, stale prices, trial balance variance or approval blockers remain open. Resolve the exception queue before investor release." : "No material blockers detected. Continue final reviewer evidence checks before publication."}</p>
+        </div>
+        <div className={`release-stamp ${readiness.blocked ? "blocked" : "ready"}`}>{readiness.blocked ? "HOLD NAV" : "READY"}</div>
+      </section>
       <section className="metrics-row">
-        <Metric label="Gross assets" value={fmt(r.grossAssets, true)} tone="good" />
-        <Metric label="Liabilities" value={fmt(r.liabilities, true)} tone="warn" />
+        <Metric label="NAV Status" value={readiness.blocked ? "Blocked" : "Ready"} tone={readiness.blocked ? "bad" : "good"} />
         <Metric label="Net assets" value={fmt(r.netAssets, true)} tone="good" />
-        <Metric label="Unrealized P&L" value={fmt(r.unrealizedGains, true)} tone={r.unrealizedGains >= 0 ? "good" : "bad"} />
-        <Metric label="Open exceptions" value={String(r.exceptions.filter((e) => e.status !== "Cleared").length)} tone="bad" />
+        <Metric label="Open breaks" value={String(readiness.openBreaks.length)} tone={readiness.openBreaks.length ? "bad" : "good"} />
+        <Metric label="Materiality" value={readiness.mat.label} tone={readiness.mat.tone} />
+        <Metric label="Failed trades" value={String(readiness.failedTrades)} tone={readiness.failedTrades ? "warn" : "good"} />
+        <Metric label="Missing/stale prices" value={String(readiness.stalePrices)} tone={readiness.stalePrices ? "bad" : "good"} />
+        <Metric label="NAV completion" value={`${Math.max(35, 100 - readiness.openBreaks.length * 5 - readiness.stalePrices * 10)}%`} tone={readiness.blocked ? "warn" : "good"} />
+        <Metric label="Pending approvals" value={store.fundSetup.workflowStatus === "Approved" ? "0" : "1"} tone={store.fundSetup.workflowStatus === "Approved" ? "good" : "warn"} />
       </section>
       <LearningHint text="Start with NAV, open breaks, and workflow status. Institutional NAV teams clear material breaks before publishing investor-facing NAV." />
+      <DailyNavWorkflow readiness={readiness} />
+      <RoleBasedLens readiness={readiness} />
+      <TopNavIssues readiness={readiness} />
+      <OwnershipSlaDashboard readiness={readiness} />
+      <NavMovementExplainer />
+      <BreakEvidencePack readiness={readiness} />
       <section className="panel wide">
         <PanelTitle title="NAV Waterfall" right="Real-time closing NAV bridge" />
         <ResponsiveContainer width="100%" height={260}>
@@ -1191,10 +1522,6 @@ function Dashboard() {
             <Tooltip formatter={(v) => fmt(Number(v), true)} contentStyle={{ background: "#101b20", border: "1px solid #263940" }} />
           </PieChart>
         </ResponsiveContainer>
-      </section>
-      <section className="panel">
-        <PanelTitle title="Practice Scenario" right={store.fundMode} />
-        <ScenarioCard scenario={scenariosForModule("risk")[0] ?? scenarioCatalog[0]} compact />
       </section>
       <ExceptionPanel />
     </div>
@@ -1308,16 +1635,27 @@ function Statements({ kind }: { kind: "pl" | "balance" | "nav" }) {
   const r = useRecalc();
   const store = useFundStore();
   if (kind === "pl") {
-    const grossIncome = r.dividendIncome + r.interestIncome + r.realizedGains + r.unrealizedGains + r.fxGainLoss;
+    const backendAdjustment = store.backendNavAdjustments;
+    const grossIncome = r.dividendIncome + r.interestIncome + r.realizedGains + r.unrealizedGains + r.fxGainLoss + backendAdjustment;
     const financingCost = 92000;
     const auditFee = 28000;
     const adminFee = 65000;
     const totalExpenses = r.managementFee + r.performanceFee + r.brokerFees + financingCost + auditFee + adminFee;
-    return <section className="panel full"><PanelTitle title="P&L Statement" right="Sectioned institutional income statement" /><SimpleRows rows={[
+    return <section className="panel full">
+      <PanelTitle title="P&L Statement" right="Sectioned institutional income statement" />
+      {backendAdjustment !== 0 && <div className={`pl-posting-strip ${backendAdjustment >= 0 ? "good" : "bad"}`}>
+        <div>
+          <span>Backend GL Posting Impact</span>
+          <b>{fmt(backendAdjustment, true)}</b>
+        </div>
+        <p>Approved maker-checker workflow postings have been absorbed into P&L, trial balance, balance sheet and NAV.</p>
+      </div>}
+      <SimpleRows rows={[
       { Section: "INCOME", Line: "Dividend Income", Amount: fmt(r.dividendIncome, true) },
       { Section: "INCOME", Line: "Interest Income", Amount: fmt(r.interestIncome, true) },
       { Section: "INCOME", Line: "Realized Gain/Loss", Amount: fmt(r.realizedGains, true) },
       { Section: "INCOME", Line: "Unrealized Gain/Loss", Amount: fmt(r.unrealizedGains, true) },
+      { Section: "INCOME", Line: "Backend Posted GL Adjustments", Amount: fmt(backendAdjustment, true) },
       { Section: "INCOME", Line: "FX Gain/Loss", Amount: fmt(r.fxGainLoss, true) },
       { Section: "TOTAL", Line: "Gross Income", Amount: fmt(grossIncome, true) },
       { Section: "EXPENSES", Line: "Management Fee", Amount: fmt(-r.managementFee, true) },
@@ -1329,7 +1667,8 @@ function Statements({ kind }: { kind: "pl" | "balance" | "nav" }) {
       { Section: "TOTAL", Line: "Total Expenses", Amount: fmt(-totalExpenses, true) },
       { Section: "TOTAL", Line: "Net Investment Income", Amount: fmt(r.dividendIncome + r.interestIncome - totalExpenses, true) },
       { Section: "TOTAL", Line: "Net Profit/Loss", Amount: fmt(grossIncome - totalExpenses, true) },
-    ]} /></section>;
+    ]} />
+    </section>;
   }
   if (kind === "balance") {
     const assetRows = r.balanceSheet.filter((x) => x.section === "Assets");
@@ -1672,18 +2011,169 @@ function PositionReconciliationView() {
 }
 
 function BreaksDashboard() {
-  const { breaks, updateBreak } = useFundStore();
+  const { breaks, updateBreak, setActiveModule, explainContext } = useFundStore();
+  const [selectedBreakId, setSelectedBreakId] = useState(breaks[0]?.id ?? "");
+  const selectedBreak = breaks.find((b) => b.id === selectedBreakId) ?? breaks[0];
+  const sourceModule = selectedBreak ? moduleForBreak(selectedBreak.breakType) : "nav";
   return (
     <section className="panel full">
       <PanelTitle title="Centralized Breaks Dashboard" right="Assignment, SLA, escalation and resolution workflow" />
       <div className="break-actions"><span>Actions available: manual match, force match, split, merge, write off immaterial, pass adjustment journal, create manual accrual, rerun reconciliation.</span></div>
-      <div className="table-wrap"><table className="data-grid"><thead><tr><th>Break ID</th><th>Type</th><th>Severity</th><th>Aging</th><th>Owner</th><th>NAV Impact</th><th>Root Cause</th><th>Status</th><th>Resolution Notes</th><th>Escalation</th><th>SLA</th><th>Comments</th><th>Workflow Actions</th><th>AI</th></tr></thead><tbody>{breaks.map((b) => <tr key={b.id}><td>{b.id}</td><td>{b.breakType}</td><td><span className={`tag ${b.severity === "Critical" || b.severity === "High" ? "bad" : b.severity === "Medium" ? "warn" : "good"}`}>{b.severity}</span></td><td>{b.aging}d</td><td><EditableText value={b.owner} onCommit={(v) => updateBreak(b.id, "owner", v)} /></td><td>{fmt(b.navImpact, true)}</td><td>{b.rootCause}</td><td><select className="terminal-select" value={b.status} onChange={(e) => updateBreak(b.id, "status", e.target.value)}><option>Open</option><option>Investigating</option><option>Pending External Party</option><option>Escalated</option><option>Resolved</option><option>Approved</option><option>Closed</option></select></td><td><EditableText value={b.resolutionNotes} onCommit={(v) => updateBreak(b.id, "resolutionNotes", v)} /></td><td>{b.escalationLevel}</td><td>{b.slaHours}h</td><td>{b.comments.join(" | ")}</td><td><div className="inline-actions"><button onClick={() => updateBreak(b.id, "status", "Escalated")}>Escalate</button><button onClick={() => updateBreak(b.id, "status", "Resolved")}>Resolve</button><button onClick={() => updateBreak(b.id, "status", "Approved")}>Approve</button><button onClick={() => updateBreak(b.id, "status", "Open")}>Reopen</button></div></td><td><ExplainButton context={{ tab: "exceptions", title: b.id, summary: b.rootCause, accountingImpact: `Affected accounts depend on ${b.breakType}; unresolved items block clean NAV sign-off.`, navImpact: `Estimated NAV impact ${fmt(b.navImpact, true)} versus materiality threshold.`, recommendedAction: b.severity === "Critical" || b.severity === "High" ? "Escalate, obtain evidence, and approve resolution before NAV publication." : "Assign owner, document resolution notes, and approve if immaterial.", relatedEntries: ["Break register", "Audit trail", "NAV control checklist"] }} /></td></tr>)}</tbody></table></div>
+      {selectedBreak && <div className="break-evidence-detail">
+        <div>
+          <span>Selected Evidence Pack</span>
+          <b>{selectedBreak.id} / {selectedBreak.breakType}</b>
+          <small>{selectedBreak.rootCause}</small>
+        </div>
+        <div><span>Internal Source</span><b>{modules.find((m) => m.id === sourceModule)?.label}</b><small>Open the operational source table for investigation.</small></div>
+        <div><span>GL / NAV Impact</span><b>{fmt(selectedBreak.navImpact, true)}</b><small>{selectedBreak.severity} severity, escalation {selectedBreak.escalationLevel}</small></div>
+        <div><span>Audit Evidence</span><b>{selectedBreak.resolutionNotes}</b><small>{selectedBreak.comments.join(" | ")}</small></div>
+        <button className="terminal-button selected" onClick={() => setActiveModule(sourceModule)}>Open Source Data</button>
+        <button className="terminal-button" onClick={() => setActiveModule("gl")}>Open GL Impact</button>
+        <button className="terminal-button" onClick={() => setActiveModule("nav")}>Open NAV Impact</button>
+        <button className="terminal-button" onClick={() => setActiveModule("audit")}>Open Audit Trail</button>
+      </div>}
+      <div className="table-wrap"><table className="data-grid"><thead><tr><th>Break ID</th><th>Type</th><th>Severity</th><th>Aging</th><th>Owner</th><th>NAV Impact</th><th>Root Cause</th><th>Status</th><th>Resolution Notes</th><th>Escalation</th><th>SLA</th><th>Comments</th><th>Evidence / Drilldown</th><th>Workflow Actions</th><th>AI</th></tr></thead><tbody>{breaks.map((b) => <tr key={b.id}><td><button className="link-button" onClick={() => setSelectedBreakId(b.id)}>{b.id}</button></td><td>{b.breakType}</td><td><span className={`tag ${b.severity === "Critical" || b.severity === "High" ? "bad" : b.severity === "Medium" ? "warn" : "good"}`}>{b.severity}</span></td><td>{b.aging}d</td><td><EditableText value={b.owner} onCommit={(v) => updateBreak(b.id, "owner", v)} /></td><td>{fmt(b.navImpact, true)}</td><td>{b.rootCause}</td><td><select className="terminal-select" value={b.status} onChange={(e) => updateBreak(b.id, "status", e.target.value)}><option>Open</option><option>Investigating</option><option>Pending External Party</option><option>Escalated</option><option>Resolved</option><option>Approved</option><option>Closed</option></select></td><td><EditableText value={b.resolutionNotes} onCommit={(v) => updateBreak(b.id, "resolutionNotes", v)} /></td><td>{b.escalationLevel}</td><td>{b.slaHours}h</td><td>{b.comments.join(" | ")}</td><td><div className="inline-actions"><button onClick={() => { setSelectedBreakId(b.id); setActiveModule(moduleForBreak(b.breakType)); }}>Source</button><button onClick={() => setActiveModule("gl")}>GL</button><button onClick={() => setActiveModule("nav")}>NAV</button><button onClick={() => setActiveModule("audit")}>Audit</button></div></td><td><div className="inline-actions"><button onClick={() => updateBreak(b.id, "status", "Escalated")}>Escalate</button><button onClick={() => updateBreak(b.id, "status", "Resolved")}>Resolve</button><button onClick={() => updateBreak(b.id, "status", "Approved")}>Approve</button><button onClick={() => updateBreak(b.id, "status", "Open")}>Reopen</button></div></td><td><button className="link-button" onClick={() => explainContext({ tab: "exceptions", title: b.id, summary: b.rootCause, accountingImpact: `Affected accounts depend on ${b.breakType}; unresolved items block clean NAV sign-off.`, navImpact: `Estimated NAV impact ${fmt(b.navImpact, true)} versus materiality threshold.`, recommendedAction: b.severity === "Critical" || b.severity === "High" ? "Escalate, obtain evidence, and approve resolution before NAV publication." : "Assign owner, document resolution notes, and approve if immaterial.", relatedEntries: ["Break register", "Audit trail", "NAV control checklist"] })}>Explain</button></td></tr>)}</tbody></table></div>
     </section>
   );
 }
 
 function WorkflowQueue() {
-  const { fundSetup, updateWorkflow } = useFundStore();
+  const { fundSetup, updateWorkflow, applyBackendGlPosting, trainingMode, sandboxRole } = useFundStore();
+  const [workflowMessage, setWorkflowMessage] = useState("");
+  const [correctionType, setCorrectionType] = useState("Reversal");
+  const [correctionReason, setCorrectionReason] = useState("Incorrect posting requires controller correction review.");
+  const [evidenceNote, setEvidenceNote] = useState("Custodian/PB evidence pending attachment.");
+  const approvals = useQuery({
+    queryKey: ["workflow-approvals"],
+    queryFn: () => institutionalApi.approvals(),
+    refetchInterval: 8000,
+    retry: 1,
+  });
+  const glPostings = useQuery({
+    queryKey: ["workflow-gl-postings"],
+    queryFn: () => institutionalApi.glPostings(),
+    refetchInterval: 8000,
+    retry: 1,
+  });
+  const approvalRows = approvals.data?.approvals ?? [];
+  const postingRows = glPostings.data?.postings ?? [];
+  const aaplBreakAlreadySubmitted = approvalRows.some((a) => (
+    a.entity_type === "position_reconciliation_break"
+    && (a.proposed_action?.break_id === "BRK-AAPL-SHORT-9000" || a.entity_id === "BRK-AAPL-SHORT-9000")
+    && !["Rejected", "Closed", "Cancelled"].includes(a.status)
+  ));
+  const submittedCount = approvalRows.filter((a) => a.status === "Submitted").length;
+  const approvedCount = approvalRows.filter((a) => a.status === "Approved").length;
+  const postedCount = approvalRows.filter((a) => a.status === "Posted").length;
+  const rejectedCount = approvalRows.filter((a) => a.status === "Rejected").length;
+  const correctionRows = approvalRows.filter((a) => Boolean(a.proposed_action?.correction_of));
+  const activeCorrectionRows = correctionRows.filter((a) => a.status === "Submitted" || a.status === "Approved");
+  const correctionSourceIds = new Set(correctionRows.map((a) => String(a.proposed_action?.correction_of)));
+  const pendingNavImpact = approvalRows
+    .filter((a) => a.status === "Submitted" || a.status === "Approved")
+    .reduce((sum, a) => sum + Number(a.nav_impact ?? 0), 0);
+  const postedNavImpact = postingRows.reduce((sum, p) => sum + Number(p.nav_impact ?? 0), 0);
+  const todayStamp = new Date().toDateString();
+  const submittedToday = approvalRows.filter((a) => a.submitted_at && new Date(a.submitted_at).toDateString() === todayStamp).length;
+  const postedToday = approvalRows.filter((a) => a.posted_at && new Date(a.posted_at).toDateString() === todayStamp).length;
+  const agedItems = approvalRows.filter((a) => a.status !== "Posted" && a.submitted_at && Date.now() - new Date(a.submitted_at).getTime() > 24 * 60 * 60 * 1000).length;
+  const missingEvidence = correctionRows.filter((a) => !a.proposed_action?.evidence_note || String(a.proposed_action.evidence_note).toLowerCase().includes("pending")).length;
+  const unsignedApprovals = approvalRows.filter((a) => (a.status === "Approved" || a.status === "Posted") && !a.digital_signature).length;
+  const navReleaseBlocked = submittedCount > 0 || approvedCount > 0 || activeCorrectionRows.length > 0 || missingEvidence > 0 || unsignedApprovals > 0;
+  const sandboxAnalyst = trainingMode === "Sandbox" && sandboxRole.startsWith("Analyst");
+  const sandboxSenior = trainingMode === "Sandbox" && sandboxRole.startsWith("Senior");
+  const canApproveWorkflow = trainingMode === "Live Mode" || sandboxSenior || sandboxRole.startsWith("Fund Controller");
+  const canPostWorkflow = trainingMode === "Live Mode" || sandboxRole.startsWith("Fund Controller");
+  const canReopenWorkflow = trainingMode === "Live Mode" || sandboxRole.startsWith("Fund Controller");
+  const refreshApprovals = () => approvals.refetch();
+  useEffect(() => {
+    postingRows.forEach((posting) => applyBackendGlPosting(posting));
+  }, [postingRows, applyBackendGlPosting]);
+  const approveItem = async (id: string) => {
+    if (!canApproveWorkflow) {
+      setWorkflowMessage("Sandbox permission blocked: Analyst role can investigate and submit, but cannot approve.");
+      return;
+    }
+    setWorkflowMessage("Approving through backend maker-checker control...");
+    try {
+      await institutionalApi.approve(id, "Checker approved resolution after NAV/materiality review.", { userId: "fund.controller" });
+      setWorkflowMessage("Approved by Fund Controller. Audit hash event created.");
+      refreshApprovals();
+    } catch (error) {
+      setWorkflowMessage(error instanceof Error ? error.message : "Approval failed.");
+    }
+  };
+  const rejectItem = async (id: string) => {
+    setWorkflowMessage("Rejecting through backend maker-checker control...");
+    try {
+      await institutionalApi.reject(id, "Rejected pending additional break evidence.", { userId: "fund.controller" });
+      setWorkflowMessage("Rejected by Fund Controller. Audit hash event created.");
+      refreshApprovals();
+    } catch (error) {
+      setWorkflowMessage(error instanceof Error ? error.message : "Rejection failed.");
+    }
+  };
+  const postItem = async (id: string) => {
+    if (!canPostWorkflow) {
+      setWorkflowMessage("Sandbox permission blocked: only Fund Controller / Signoff Authority can post to GL.");
+      return;
+    }
+    setWorkflowMessage("Posting approved workflow into backend GL register...");
+    try {
+      const result = await institutionalApi.postToGl(id, { userId: "fund.controller" });
+      applyBackendGlPosting(result.posting);
+      setWorkflowMessage("Posted to GL. Journal lines created and workflow locked.");
+      refreshApprovals();
+      glPostings.refetch();
+    } catch (error) {
+      setWorkflowMessage(error instanceof Error ? error.message : "GL posting failed.");
+    }
+  };
+  const reopenItem = async (id: string) => {
+    if (!canReopenWorkflow) {
+      setWorkflowMessage("Sandbox permission blocked: only Signoff Authority can reopen posted items for correction.");
+      return;
+    }
+    setWorkflowMessage("Opening correction workflow for posted item...");
+    try {
+      await institutionalApi.reopenForCorrection(id, {
+        correction_type: correctionType,
+        reason: correctionReason,
+        evidence_note: evidenceNote,
+      }, { userId: "nav.manager" });
+      setWorkflowMessage("Correction workflow opened. New item must be approved before any reversal hits GL.");
+      refreshApprovals();
+    } catch (error) {
+      setWorkflowMessage(error instanceof Error ? error.message : "Reopen correction failed.");
+    }
+  };
+  const submitAaplBreak = async () => {
+    setWorkflowMessage("Submitting AAPL break resolution to backend queue...");
+    try {
+      await institutionalApi.submitApproval({
+        entity_type: "position_reconciliation_break",
+        entity_id: "BRK-AAPL-SHORT-9000",
+        proposed_action: {
+          break_id: "BRK-AAPL-SHORT-9000",
+          ticker: "AAPL",
+          issue: "Short quantity mismatch of 9,000 shares",
+          proposed_resolution: "Adjust internal position after custody/PB evidence review",
+        },
+        nav_impact: -4950000,
+        gl_impact: {
+          debit: "Unrealized Loss",
+          credit: "Investments at Fair Value",
+          amount: 4950000,
+        },
+        maker_comment: "Submitted by analyst for four-eyes Fund Controller review.",
+      }, { userId: "junior.analyst" });
+      setWorkflowMessage("Submitted to backend approval queue. A different checker must approve.");
+      refreshApprovals();
+    } catch (error) {
+      setWorkflowMessage(error instanceof Error ? error.message : "Submit failed.");
+    }
+  };
   return (
     <section className="panel full">
       <PanelTitle title="Workflow Approval Queue" right="Maker-checker NAV operating status" />
@@ -1692,6 +2182,122 @@ function WorkflowQueue() {
         { Package: "Daily NAV Estimate", Maker: "Fund Accounting", Checker: "NAV Control", Status: fundSetup.workflowStatus, Cutoff: fundSetup.valuationCutoff, Action: "Review valuation, breaks, TB, and investor allocation" },
         { Package: "Official Month-End NAV", Maker: "Fund Accounting", Checker: "CFO Delegate", Status: "Submitted", Cutoff: "Month-end + 5 BD", Action: "Approve financial statements and investor capital rollforward" },
       ]} />
+      <div className="controller-summary-grid">
+        <div><span>Submitted</span><b>{submittedCount}</b><small>Awaiting controller review</small></div>
+        <div><span>Approved</span><b>{approvedCount}</b><small>Ready for GL posting</small></div>
+        <div><span>Posted</span><b>{postedCount}</b><small>Locked with audit hash</small></div>
+        <div><span>Corrections</span><b>{correctionRows.length}</b><small>{activeCorrectionRows.length} active</small></div>
+        <div><span>Rejected</span><b>{rejectedCount}</b><small>Requires analyst rework</small></div>
+        <div><span>Pending NAV Impact</span><b>{fmt(pendingNavImpact, true)}</b><small>Not yet posted</small></div>
+        <div><span>Posted NAV Impact</span><b>{fmt(postedNavImpact, true)}</b><small>Included in GL/NAV engine</small></div>
+        <div className={navReleaseBlocked ? "blocked" : "ready"}><span>NAV Release Gate</span><b>{navReleaseBlocked ? "Blocked" : "Ready"}</b><small>{navReleaseBlocked ? "Open approvals/corrections require signoff" : "No active workflow blockers"}</small></div>
+      </div>
+      <div className={`nav-release-gate ${navReleaseBlocked ? "blocked" : "ready"}`}>
+        <strong>{navReleaseBlocked ? "NAV RELEASE BLOCKED" : "NAV RELEASE READY"}</strong>
+        <span>{navReleaseBlocked ? `${submittedCount + approvedCount} open approval item(s), ${activeCorrectionRows.length} active correction(s), ${missingEvidence} evidence gap(s), ${unsignedApprovals} signature exception(s).` : "All backend approval controls are clear for NAV release review."}</span>
+      </div>
+      <div className="controller-control-strip">
+        <div><span>Submitted Today</span><b>{submittedToday}</b></div>
+        <div><span>Posted Today</span><b>{postedToday}</b></div>
+        <div><span>Aged Items</span><b>{agedItems}</b></div>
+        <div><span>Needs Controller Review</span><b>{submittedCount}</b></div>
+        <div><span>Evidence Gaps</span><b>{missingEvidence}</b></div>
+        <div><span>Signature Exceptions</span><b>{unsignedApprovals}</b></div>
+      </div>
+      <section className="panel">
+        <PanelTitle title="Backend Four-Eyes Approval Queue" right={approvals.isError ? "API offline - start npm run api" : approvals.isFetching ? "Refreshing backend queue" : "Live institutional API"} />
+        {trainingMode === "Sandbox" && <div className="sandbox-permission-strip">
+          <div><span>Active Sandbox Role</span><b>{sandboxRole}</b></div>
+          <div><span>Permissions</span><b>{sandboxAnalyst ? "Investigate / Submit / Escalate" : sandboxSenior ? "Review / Validate / Approve" : "Final Signoff / Post / Reopen"}</b></div>
+          <div><span>Restricted Actions</span><b>{sandboxAnalyst ? "Approval, GL posting, NAV release" : sandboxSenior ? "GL posting, NAV release" : "None for simulation"}</b></div>
+        </div>}
+        <div className="correction-panel">
+          <label>
+            <span>Correction Type</span>
+            <select className="terminal-select" value={correctionType} onChange={(e) => setCorrectionType(e.target.value)}>
+              <option>Reversal</option>
+              <option>Adjustment</option>
+              <option>Reclass</option>
+              <option>NAV Restatement Review</option>
+            </select>
+          </label>
+          <label>
+            <span>Correction Reason</span>
+            <input className="terminal-input" value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} />
+          </label>
+          <label>
+            <span>Evidence Note</span>
+            <input className="terminal-input" value={evidenceNote} onChange={(e) => setEvidenceNote(e.target.value)} />
+          </label>
+        </div>
+        <div className="workflow-bar">
+          <button className="terminal-button selected" onClick={submitAaplBreak} disabled={aaplBreakAlreadySubmitted}>
+            {aaplBreakAlreadySubmitted ? "AAPL Break Already Controlled" : "Submit AAPL Break Resolution"}
+          </button>
+          <button className="terminal-button" onClick={() => refreshApprovals()}>Refresh Queue</button>
+          {workflowMessage && <span>{workflowMessage}</span>}
+        </div>
+        {approvals.isError ? <div className="empty-state">Backend API is not reachable. Start it in another terminal with cmd /c npm run api.</div> : (
+          <SimpleRows rows={approvalRows.map((a) => ({
+            "Approval ID": a.approval_id.slice(0, 8),
+            Entity: a.entity_type,
+            Maker: a.maker_user_id,
+            Checker: a.checker_user_id ?? "Pending",
+            Status: <span className={`tag ${a.status === "Approved" || a.status === "Posted" ? "good" : a.status === "Rejected" ? "bad" : "warn"}`}>{a.status}</span>,
+            "NAV Impact": fmt(a.nav_impact, true),
+            "Correction Type": String(a.proposed_action?.correction_type ?? "N/A"),
+            "Evidence": String(a.proposed_action?.evidence_note ?? "N/A"),
+            "Evidence Status": a.proposed_action?.evidence_note && !String(a.proposed_action.evidence_note).toLowerCase().includes("pending") ? <span className="tag good">Present</span> : <span className="tag warn">Pending</span>,
+            "Signature": a.digital_signature ? <span className="tag good">Signed</span> : <span className="tag warn">Pending</span>,
+            "SLA": a.status === "Posted" ? "Closed" : a.submitted_at && Date.now() - new Date(a.submitted_at).getTime() > 24 * 60 * 60 * 1000 ? "Aged >24h" : "Within SLA",
+            "Maker Comment": a.maker_comment ?? "",
+            "Digital Signature": a.digital_signature ? `${a.digital_signature.slice(0, 10)}...` : "Pending approval",
+            Action: a.status === "Submitted"
+              ? <div className="inline-actions"><button disabled={!canApproveWorkflow} onClick={() => approveItem(a.approval_id)}>Checker Approve</button><button disabled={!canApproveWorkflow} onClick={() => rejectItem(a.approval_id)}>Reject</button></div>
+              : a.status === "Approved"
+                ? <button className="link-button" disabled={!canPostWorkflow} onClick={() => postItem(a.approval_id)}>Post to GL</button>
+                : a.status === "Posted"
+                  ? correctionSourceIds.has(a.approval_id)
+                    ? "Correction Open"
+                    : <button className="link-button" disabled={!canReopenWorkflow} onClick={() => reopenItem(a.approval_id)}>Reopen Correction</button>
+                  : "Locked",
+          }))} empty="No backend workflow records yet. Submit the AAPL break resolution to create one." />
+        )}
+      </section>
+      <section className="panel">
+        <PanelTitle title="Correction Register" right="Reopened posted items with evidence and reversal control" />
+        <SimpleRows rows={correctionRows.map((a) => ({
+          "Correction ID": a.approval_id.slice(0, 8),
+          "Original Approval": String(a.proposed_action?.correction_of ?? "").slice(0, 8),
+          Type: String(a.proposed_action?.correction_type ?? "Correction"),
+          Reason: String(a.proposed_action?.correction_reason ?? a.maker_comment ?? ""),
+          Evidence: String(a.proposed_action?.evidence_note ?? "Pending"),
+          Maker: a.maker_user_id,
+          Status: <span className={`tag ${a.status === "Posted" ? "good" : a.status === "Rejected" ? "bad" : "warn"}`}>{a.status}</span>,
+          "NAV Reversal Impact": fmt(a.nav_impact, true),
+          Action: a.status === "Submitted"
+            ? <button className="link-button" disabled={!canApproveWorkflow} onClick={() => approveItem(a.approval_id)}>Approve Correction</button>
+            : a.status === "Approved"
+              ? <button className="link-button" disabled={!canPostWorkflow} onClick={() => postItem(a.approval_id)}>Post Correction</button>
+              : "Locked",
+        }))} empty="No correction workflows opened yet. Use Reopen Correction on a posted item." />
+      </section>
+      <section className="panel">
+        <PanelTitle title="Backend GL Posting Register" right={glPostings.isFetching ? "Refreshing posting register" : "Approved items posted to accounting"} />
+        {glPostings.isError ? <div className="empty-state">GL posting register is not reachable. Confirm the API terminal is running.</div> : (
+          <SimpleRows rows={postingRows.map((p) => ({
+            "Posting ID": p.posting_id.slice(0, 8),
+            "Approval ID": p.approval_id.slice(0, 8),
+            Source: p.source_entity_type,
+            Memo: p.memo,
+            "NAV Impact": fmt(p.nav_impact, true),
+            Debit: `${p.lines[0]?.account ?? "Debit"} ${fmt(p.lines[0]?.debit ?? 0, true)}`,
+            Credit: `${p.lines[1]?.account ?? "Credit"} ${fmt(p.lines[1]?.credit ?? 0, true)}`,
+            "Posted By": p.posted_by,
+            "Posted At": new Date(p.posted_at).toLocaleTimeString(),
+          }))} empty="No backend GL postings yet. Approve an item, then click Post to GL." />
+        )}
+      </section>
     </section>
   );
 }
@@ -1737,6 +2343,212 @@ function ReconRiskOps({ type }: { type: ModuleId }) {
   if (type === "stress" || type === "scenario") return <section className="panel full"><PanelTitle title={type === "stress" ? "Stress Testing" : "Scenario Simulation"} right="Focused operational scenario" /><ScenarioCard scenario={scenariosForModule("risk")[0] ?? scenarioCatalog[0]} /></section>;
   if (type === "ops") return <section className="panel full"><PanelTitle title="Operations Control Dashboard" right="Workflow, breaks, valuation and sign-off status" /><section className="metrics-row"><Metric label="NAV status" value="Draft T+0" tone="warn" /><Metric label="GL status" value={Math.abs(r.trialBalance.reduce((s, x) => s + x.debit - x.credit, 0)) < 1 ? "Balanced" : "Break"} tone="good" /><Metric label="Open breaks" value={String(r.exceptions.length)} tone="bad" /><Metric label="Approval queue" value="7 items" /></section><ExceptionPanel /></section>;
   return <section className="panel full"><PanelTitle title={modules.find((m) => m.id === type)?.label ?? "Module"} right="Institutional operating worksheet" /><SimpleRows rows={r.exceptions.map((e) => ({ Module: e.module, Severity: e.severity, Break: e.message, Owner: e.owner, Status: e.status }))} /></section>;
+}
+
+function SandboxCommandCenter() {
+  const store = useFundStore();
+  const r = useRecalc();
+  const [experience, setExperience] = useState<ScenarioExperienceLevel>("All");
+  const [designation, setDesignation] = useState<ScenarioDesignation>("All");
+  const [simulationType, setSimulationType] = useState<ScenarioSimulationType>("All");
+  const [learnerResponse, setLearnerResponse] = useState("I identified the source record, NAV impact, failed control, GL treatment and required approval evidence.");
+  const roles = ["Analyst (0-4 Years)", "Senior Analyst / SME (4-10 Years)", "Fund Controller / Signoff Authority (10+ Years)"] as const;
+  const tracks = ["Reconciliation Operations", "Pricing & Valuation", "NAV Oversight", "Transfer Agency", "Corporate Actions", "Fee Operations", "Workflow & Signoff", "Investor Allocation", "Operational Risk", "Audit & Governance"] as const;
+  const experienceLevels: ScenarioExperienceLevel[] = ["All", "0-4 Years", "4-10 Years", "10+ Years"];
+  const designations: ScenarioDesignation[] = ["All", "Analyst", "SME / Senior Analyst / QA", "Signoff Authority"];
+  const simulationTypes: ScenarioSimulationType[] = ["All", "NAV Oversight", "Reconciliation", "Pricing", "Trade Operations", "Corporate Actions", "Performance Fees", "Management Fees", "Investor Allocation", "Operational Risk", "Crisis Simulation"];
+  const trackModules: Record<string, ModuleId[]> = {
+    "Reconciliation Operations": ["cashRecon", "positionRecon", "reconBreaks"],
+    "Pricing & Valuation": ["pricing", "holdings"],
+    "NAV Oversight": ["nav", "workflow", "gl"],
+    "Transfer Agency": ["capital", "subsReds", "taOversight"],
+    "Corporate Actions": ["corporateActions", "dividends", "coupons"],
+    "Fee Operations": ["mgmtFees", "perfFees", "equalization"],
+    "Workflow & Signoff": ["workflow", "audit", "ops"],
+    "Investor Allocation": ["capital", "waterfall", "investorReporting"],
+    "Operational Risk": ["risk", "stress", "exceptions"],
+    "Audit & Governance": ["audit", "workflow", "backOfficeOversight"],
+  };
+  const mappedModules = trackModules[store.sandboxTrack] ?? ["reconBreaks"];
+  const trackScenarios = scenarioCatalog.filter((scenario) => mappedModules.includes(scenario.module)).slice(0, 6);
+  const filtered = useMemo(() => scenarioCatalog.filter((scenario) => {
+    const meta = scenarioOperationalMetadata(scenario);
+    const experienceOk = experience === "All" || meta.experience === experience;
+    const designationOk = designation === "All" || meta.designation === designation;
+    const typeOk = simulationType === "All" || meta.simulationType === simulationType;
+    return experienceOk && designationOk && typeOk;
+  }), [experience, designation, simulationType]);
+  const [selectedId, setSelectedId] = useState<string>(filtered[0]?.id ?? scenarioCatalog[0].id);
+  const selected = filtered.find((scenario) => scenario.id === selectedId) ?? filtered[0] ?? scenarioCatalog[0];
+  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const activeRun = store.scenarioRuns.find((run) => run.status === "Active");
+  const latestCompletedRun = store.scenarioRuns.find((run) => run.status === "Passed" || run.status === "Needs Review");
+  const activeScenario = scenarioCatalog.find((scenario) => scenario.id === store.activeScenarioId);
+  const workbenchModule = activeScenario?.module ?? selected.module;
+  const nav = store.activeScenarioImpact ? impactDelta(store.activeScenarioImpact.before.nav, store.activeScenarioImpact.after.nav) : null;
+  const completedRuns = store.scenarioRuns.filter((run) => ["Passed", "Needs Review", "Submitted"].includes(run.status));
+  const averageScore = completedRuns.length ? Math.round(completedRuns.reduce((sum, run) => sum + run.score, 0) / completedRuns.length) : 0;
+  const criticalBreaks = openBreaks.filter((b) => b.severity === "Critical" || b.severity === "High").length;
+  const maturity = averageScore >= 85 ? "Signoff-ready" : averageScore >= 70 ? "Operationally sound" : averageScore >= 50 ? "Needs supervision" : "Early-stage";
+  const navDeadline = `${String(Math.floor(store.sandboxSlaMinutes / 60)).padStart(2, "0")}:${String(store.sandboxSlaMinutes % 60).padStart(2, "0")}:00`;
+  const rolePermissions = store.sandboxRole.startsWith("Analyst")
+    ? ["Investigate breaks", "Submit workflow item", "Escalate exceptions", "Cannot approve/post"]
+    : store.sandboxRole.startsWith("Senior")
+      ? ["Review adjustments", "Approve operational fixes", "Validate materiality", "Cannot final post"]
+      : ["Final NAV signoff", "Post GL corrections", "Reopen posted items", "Authorize release"];
+  const injectScenario = (scenario: ScenarioDefinition) => {
+    store.setTrainingMode("Sandbox");
+    store.applyScenario(scenario.id);
+    store.setActiveModule(scenario.module);
+  };
+  useEffect(() => {
+    if (!filtered.some((scenario) => scenario.id === selectedId)) {
+      setSelectedId(filtered[0]?.id ?? scenarioCatalog[0].id);
+    }
+  }, [filtered, selectedId]);
+  return (
+    <section className="panel full sandbox-command">
+      <PanelTitle title="Sandbox Command Center" right="Operational flight simulator using real NAV workflows" />
+      <div className="sandbox-command-grid">
+        <section>
+          <h3>Environment Control</h3>
+          <label><span>Role</span><select className="terminal-select" value={store.sandboxRole} onChange={(e) => store.setSandboxRole(e.target.value as typeof roles[number])}>{roles.map((role) => <option key={role}>{role}</option>)}</select></label>
+          <label><span>Operational Track</span><select className="terminal-select" value={store.sandboxTrack} onChange={(e) => store.setSandboxTrack(e.target.value as typeof tracks[number])}>{tracks.map((track) => <option key={track}>{track}</option>)}</select></label>
+          <div className="permission-stack">{rolePermissions.map((item) => <span key={item}>{item}</span>)}</div>
+        </section>
+        <section>
+          <h3>SLA Pressure</h3>
+          <div className="sla-grid">
+            <div><span>NAV Publish Deadline</span><b>{navDeadline}</b></div>
+            <div><span>Critical Break SLA</span><b>{criticalBreaks ? "00:25:10" : "Clear"}</b></div>
+            <div><span>Investor Reporting</span><b>00:48:22</b></div>
+          </div>
+          <div className="inline-actions sandbox-time-actions">
+            {["Fast Forward to NAV Cutoff", "Advance to Month-End Close", "Trigger Investor Statement Deadline", "Simulate T+1 Escalation"].map((event) => <button key={event} onClick={() => store.triggerSandboxTimeEvent(event)}>{event}</button>)}
+          </div>
+        </section>
+        <section>
+          <h3>Session Analytics</h3>
+          <div className="sla-grid">
+            <div><span>Accuracy</span><b>{averageScore}%</b></div>
+            <div><span>Maturity</span><b>{maturity}</b></div>
+            <div><span>Open Breaks</span><b>{openBreaks.length}</b></div>
+          </div>
+          <p className="sandbox-note">Latest pressure event: {store.sandboxTimeEvent}. HR/L&D score considers scenario quality, SLA discipline, escalation and audit evidence.</p>
+        </section>
+      </div>
+      <section className="panel">
+        <PanelTitle title="Guided Sandbox Investigation Path" right="Start here for training and interview practice" />
+        <div className="sandbox-stepper">
+          {[
+            { step: "Choose role", done: Boolean(store.sandboxRole), detail: store.sandboxRole },
+            { step: "Choose scenario", done: Boolean(selected), detail: selected.scenarioName },
+            { step: "Read incident", done: Boolean(selected.businessContext), detail: selected.businessContext },
+            { step: "Investigate affected tab", done: Boolean(activeScenario), detail: activeScenario ? modules.find((m) => m.id === activeScenario.module)?.label ?? activeScenario.module : "Start a scenario first" },
+            { step: "Submit finding", done: Boolean(latestCompletedRun), detail: latestCompletedRun ? latestCompletedRun.status : "Pending learner response" },
+            { step: "Compare answer", done: Boolean(latestCompletedRun), detail: latestCompletedRun?.evaluationNotes.join(" ") ?? selected.expectedResolution },
+            { step: "Score & notes", done: Boolean(latestCompletedRun), detail: latestCompletedRun ? `${latestCompletedRun.score}% / ${latestCompletedRun.status}` : "Not scored yet" },
+          ].map((item, index) => <div key={item.step} className={item.done ? "done" : ""}>
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            <b>{item.step}</b>
+            <small>{item.detail}</small>
+          </div>)}
+        </div>
+        <div className="learner-submission">
+          <label>
+            <span>Investigation Finding</span>
+            <textarea value={learnerResponse} onChange={(e) => setLearnerResponse(e.target.value)} />
+          </label>
+          <button className="terminal-button selected" onClick={() => store.submitScenario(learnerResponse)} disabled={!activeRun}>Submit Finding & Score</button>
+          <button className="terminal-button" onClick={() => setLearnerResponse(selected.expectedResolution)}>Use Expected Resolution as Note</button>
+        </div>
+      </section>
+      <section className="panel">
+        <PanelTitle title="Recommended Scenario Injection" right="Track-based incidents for the selected role/desk" />
+        <div className="sandbox-scenario-grid">
+          {trackScenarios.map((scenario) => (
+            <button key={scenario.id} className="sandbox-scenario-card" onClick={() => injectScenario(scenario)}>
+              <span>{scenario.difficulty} / {scenario.module}</span>
+              <b>{scenario.scenarioName}</b>
+              <small>{scenario.objective}</small>
+            </button>
+          ))}
+        </div>
+      </section>
+      <section className="panel">
+        <PanelTitle title="Full Simulation Library" right={`${filtered.length} institutional scenarios from the former Scenario Simulation tab`} />
+        <div className="scenario-filters">
+          <select className="terminal-select" value={experience} onChange={(e) => setExperience(e.target.value as ScenarioExperienceLevel)}>
+            {experienceLevels.map((level) => <option key={level}>{level}</option>)}
+          </select>
+          <select className="terminal-select" value={designation} onChange={(e) => setDesignation(e.target.value as ScenarioDesignation)}>
+            {designations.map((role) => <option key={role}>{role}</option>)}
+          </select>
+          <select className="terminal-select" value={simulationType} onChange={(e) => setSimulationType(e.target.value as ScenarioSimulationType)}>
+            {simulationTypes.map((type) => <option key={type}>{type}</option>)}
+          </select>
+        </div>
+        <div className="scenario-lab-clean compact-library">
+          <div className="scenario-list">
+            {filtered.map((scenario) => {
+              const meta = scenarioOperationalMetadata(scenario);
+              return <button key={scenario.id} className={selected.id === scenario.id ? "selected" : ""} onClick={() => setSelectedId(scenario.id)}><b>{scenario.scenarioName}</b><span>{meta.experience} - {meta.designation} - {meta.simulationType}</span></button>;
+            })}
+          </div>
+          <div className="scenario-detail">
+            <ScenarioSimulationCard scenario={selected} />
+            {activeScenario && <div className="scenario-active-summary">
+              <span>Active Investigation</span>
+              <b>{activeScenario.scenarioName}</b>
+              <p>{activeScenario.businessContext}</p>
+              <div className="impact-cards">
+                <Metric label="NAV impact" value={fmt(nav?.delta ?? 0, true)} tone={(nav?.delta ?? 0) >= 0 ? "good" : "bad"} />
+                <Metric label="NAV impact %" value={`${((nav?.pctMove ?? 0) * 100).toFixed(2)}%`} tone={(nav?.delta ?? 0) >= 0 ? "good" : "bad"} />
+                <Metric label="Materiality" value={materiality(store.activeScenarioImpact?.after.nav ?? 0, nav?.delta ?? 0).label} tone={materiality(store.activeScenarioImpact?.after.nav ?? 0, nav?.delta ?? 0).tone} />
+              </div>
+              <div className="scenario-card-actions">
+                <button className="terminal-button" onClick={() => store.setAiPanelOpen(true)}><Bot size={15} /> AI Explain Impact</button>
+                <button className="terminal-button reject" onClick={store.resetScenario}>Reset Scenario</button>
+              </div>
+            </div>}
+            {activeScenario && <ScenarioIncidentPanel scenario={activeScenario} />}
+          </div>
+        </div>
+        <ScenarioEditableGrid module={workbenchModule} />
+      </section>
+      <section className="panel">
+        <PanelTitle title="Operational Progression" right={activeRun ? `Active: ${activeRun.scenarioName}` : "No active scenario"} />
+        <SimpleRows rows={store.scenarioRuns.slice(0, 8).map((run) => ({
+          Run: run.id,
+          Scenario: run.scenarioName,
+          Module: modules.find((m) => m.id === run.module)?.label ?? run.module,
+          Mode: run.trainingMode,
+          Status: run.status,
+          Score: `${run.score}%`,
+          Started: new Date(run.startedAt).toLocaleTimeString(),
+          Action: <button className="link-button" onClick={() => store.setActiveModule(run.module)}>Open Workflow</button>,
+        }))} empty="Inject a scenario to start an operational session." />
+      </section>
+      <section className="panel">
+        <PanelTitle title="AI Senior Manager Guidance" right="Sandbox-only mentoring" />
+        <div className="sandbox-guidance">
+          <p>Use the actual operating tabs to investigate. The AI Copilot should guide the path, not bypass the work.</p>
+          <button className="terminal-button selected" onClick={() => {
+            store.setAiPanelOpen(true);
+            store.explainContext({
+              tab: "sandboxCommand",
+              title: "Sandbox senior manager guidance",
+              summary: `You are operating as ${store.sandboxRole} on ${store.sandboxTrack}. Start from the affected source table, then validate break, NAV, GL, approval and audit evidence.`,
+              accountingImpact: "Scenario changes flow into the real accounting engine rather than a disconnected learning screen.",
+              navImpact: `Current NAV ${fmt(r.netAssets, true)} with ${openBreaks.length} open break(s).`,
+              recommendedAction: "Open the relevant workflow tab, document evidence, escalate per role permissions, and clear signoff blockers.",
+              relatedEntries: ["Sandbox Command Center", "Reconciliation Breaks", "Workflow Approval Queue", "NAV Package"],
+            });
+          }}><Bot size={15} /> Ask Senior Manager AI</button>
+        </div>
+      </section>
+    </section>
+  );
 }
 
 type RubricRating = "GREEN" | "AMBER" | "RED";
@@ -2198,7 +3010,14 @@ function ExportView() {
     URL.revokeObjectURL(url);
   };
   const csv = r.pnl.map((x) => `${x.line},${x.amount}`).join("\n");
-  return <section className="panel full"><PanelTitle title="Financial Statements Export" right="Institutional multi-sheet NAV pack and support schedules" /><div className="scenario-grid big"><button className="scenario-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_Institutional_NAV_Pack.xlsx", buildInstitutionalNavPack(store, r))}><FileSpreadsheet size={16} />Institutional 50-Sheet NAV Pack</button>{["PDF NAV Pack", "Investor Statement", "Trial Balance", "P&L", "Balance Sheet"].map((x) => <button className="scenario-button" key={x} onClick={() => download(`${x.replaceAll(" ", "-").toLowerCase()}.csv`, csv)}><Download size={16} />{x}</button>)}</div></section>;
+  const packs: Array<{ label: string; name: string; kind: "break" | "scenario" | "performance" | "checklist" | "interview" }> = [
+    { label: "Break Pack", name: "break-pack.csv", kind: "break" },
+    { label: "Scenario Result Report", name: "scenario-result-report.csv", kind: "scenario" },
+    { label: "User Performance Report", name: "user-performance-report.csv", kind: "performance" },
+    { label: "Daily Control Checklist", name: "daily-control-checklist.csv", kind: "checklist" },
+    { label: "Interview Practice Report", name: "interview-practice-report.csv", kind: "interview" },
+  ];
+  return <section className="panel full"><PanelTitle title="Financial Statements Export" right="Institutional NAV, operations and training packs" /><div className="scenario-grid big"><button className="scenario-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_Institutional_NAV_Pack.xlsx", buildInstitutionalNavPack(store, r))}><FileSpreadsheet size={16} />Institutional 50-Sheet NAV Pack</button>{["PDF NAV Pack", "Investor Statement", "Trial Balance", "P&L", "Balance Sheet"].map((x) => <button className="scenario-button" key={x} onClick={() => download(`${x.replaceAll(" ", "-").toLowerCase()}.csv`, csv)}><Download size={16} />{x}</button>)}{packs.map((pack) => <button className="scenario-button" key={pack.name} onClick={() => downloadCsv(pack.name, opsPackRows(pack.kind, store, r))}><FileDown size={16} />{pack.label}</button>)}</div></section>;
 }
 
 function impactDelta(before = 0, after = 0) {
@@ -2210,13 +3029,21 @@ function impactDelta(before = 0, after = 0) {
 function ManualEditModeBar() {
   const { manualEditMode, toggleManualEditMode, activeScenarioImpact, trainingMode, submitManualUpdates } = useFundStore();
   const nav = activeScenarioImpact ? impactDelta(activeScenarioImpact.before.nav, activeScenarioImpact.after.nav) : null;
+  const mat = activeScenarioImpact && nav ? materiality(activeScenarioImpact.after.nav, nav.delta) : null;
   return (
     <div className="edit-mode-bar">
       <div>
         <b>{trainingMode === "Sandbox" ? "Sandbox Manual Intervention" : "Manual Data Edit Mode"}</b>
         <span>{manualEditMode ? "Enabled - type numbers into the workbench and the simulator recalculates NAV, GL, P&L, cash, investor allocation, breaks and audit trail." : "Disabled - enable edits to test operational amendments and see downstream impact."}</span>
       </div>
-      {nav && <div className="impact-mini"><span>NAV Impact</span><b className={nav.delta >= 0 ? "text-good" : "text-bad"}>{fmt(nav.delta, true)} / {(nav.pctMove * 100).toFixed(2)}%</b></div>}
+      {activeScenarioImpact && nav && <div className="manual-impact-grid">
+        <div><span>Before NAV</span><b>{fmt(activeScenarioImpact.before.nav, true)}</b></div>
+        <div><span>After NAV</span><b>{fmt(activeScenarioImpact.after.nav, true)}</b></div>
+        <div><span>Difference</span><b className={nav.delta >= 0 ? "text-good" : "text-bad"}>{fmt(nav.delta, true)} / {(nav.pctMove * 100).toFixed(2)}%</b></div>
+        <div><span>Impacted Modules</span><b>NAV, GL, TB, P&L, Cash, Investors</b></div>
+        <div><span>Control Triggered</span><b>{mat?.label ?? "Pending"} materiality check</b></div>
+        <div><span>Approval Needed</span><b>{mat?.label === "Critical" || mat?.label === "Medium" ? "Yes - maker/checker" : "Operational review"}</b></div>
+      </div>}
       <button className={`terminal-button ${manualEditMode ? "selected" : ""}`} onClick={toggleManualEditMode}>
         <SlidersHorizontal size={15} /> {manualEditMode ? "Manual Input On" : "Allow Manual Input"}
       </button>
@@ -2593,7 +3420,6 @@ function CopilotChatSurface({ compact = false }: { compact?: boolean }) {
   const { copilotContext, activeModule, trainingMode } = useFundStore();
   const store = useFundStore();
   const r = useRecalc();
-  const [mode, setMode] = useState<"Learning" | "Professional">("Professional");
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: "welcome", role: "assistant", text: "I am your institutional operations copilot. Type a question about NAV movement, breaks, uploads, GL postings, fees, holdings, FX, or approval workflow.", timestamp: new Date().toLocaleTimeString() },
   ]);
@@ -2604,7 +3430,7 @@ function CopilotChatSurface({ compact = false }: { compact?: boolean }) {
   const [category, setCategory] = useState<PromptCategory | "All">("All");
   const [recentQuestions, setRecentQuestions] = useState<string[]>([]);
   const label = modules.find((m) => m.id === activeModule)?.label ?? "Current Module";
-  const effectiveMode = trainingMode === "Sandbox" ? "Learning" : mode;
+  const effectiveMode = trainingMode === "Sandbox" ? "Learning" : "Professional";
   const fallback: CopilotContext = {
     tab: activeModule,
     title: label,
@@ -2647,7 +3473,7 @@ function CopilotChatSurface({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`copilot-chat ${compact ? "compact" : ""}`}>
       <div className="question-engine-head">
-        <div><b>Suggested Operational Questions</b><span>{effectiveMode} prompts rotate with tab, breaks, uploads and NAV state.</span></div>
+        <div><b>Suggested Operational Questions</b><span>{trainingMode === "Sandbox" ? "Senior manager guidance rotates with scenario and role context." : "Professional prompts rotate with tab, breaks, uploads and NAV state."}</span></div>
         {recommended && <button onClick={() => ask(recommended.text)}>AI recommends: {recommended.text}</button>}
       </div>
       <div className="question-categories">
@@ -2712,7 +3538,11 @@ function AICopilotWorkspace() {
         </div>
         <div className="ai-launch-actions">
           <button className="terminal-button selected" onClick={() => setAiPanelOpen(true)}><Bot size={16} /> Open AI Chat</button>
-          <button className={`terminal-button ${trainingMode === "Sandbox" ? "selected" : ""}`} onClick={() => setTrainingMode(trainingMode === "Sandbox" ? "Live Mode" : "Sandbox")}><Brain size={16} /> {trainingMode}</button>
+          <button className={`terminal-button ${trainingMode === "Sandbox" ? "selected" : ""}`} onClick={() => {
+            const nextMode = trainingMode === "Sandbox" ? "Live Mode" : "Sandbox";
+            setTrainingMode(nextMode);
+            if (nextMode === "Sandbox") setActiveModule("sandboxCommand");
+          }}><Brain size={16} /> {trainingMode === "Sandbox" ? "Return Live" : "Open Sandbox"}</button>
         </div>
       </div>
       <div className="ai-context-grid">
@@ -2754,11 +3584,13 @@ function AICopilotWorkspace() {
 
 function ModuleContent() {
   const active = useFundStore((s) => s.activeModule);
+  const trainingMode = useFundStore((s) => s.trainingMode);
   return (
     <AnimatePresence mode="wait">
       <motion.main key={active} className="content" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.16 }}>
         <DependencyStrip />
         {active === "dashboard" && <Dashboard />}
+        {(active === "sandboxCommand" || active === "scenario") && trainingMode === "Sandbox" && <SandboxCommandCenter />}
         {active === "aiCopilot" && <AICopilotWorkspace />}
         {active === "fund" && <FundMasterSetup />}
         {active === "structureComparison" && <FundStructureComparisonView />}
@@ -2788,7 +3620,7 @@ function ModuleContent() {
         {active === "cashRecon" && <><FileUploadPanel module="cashRecon" title="Cash Reconciliation Upload" /><CashReconciliationView /></>}
         {active === "positionRecon" && <><FileUploadPanel module="positionRecon" title="Position Reconciliation Upload" /><PositionReconciliationView /></>}
         {active === "workflow" && <WorkflowQueue />}
-        {active === "scenario" && <ScenarioLabView />}
+        {(active === "scenario" || active === "sandboxCommand") && trainingMode === "Live Mode" && <Dashboard />}
         {active === "taOversight" && <QualityRubricView type="ta" />}
         {active === "middleOfficeOversight" && <QualityRubricView type="middle" />}
         {active === "backOfficeOversight" && <QualityRubricView type="back" />}

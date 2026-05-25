@@ -3,7 +3,7 @@ export type Currency =
   | "HKD" | "CNH" | "SEK" | "NOK" | "DKK" | "ZAR" | "BRL" | "MXN" | "KRW";
 export type AssetType = "Equity" | "Bond" | "FX Forward" | "Swap" | "Option" | "Future" | "ETF" | "CFD" | "Commodity";
 export type ModuleId =
-  | "dashboard" | "fund" | "holdings" | "trades" | "security" | "pricing" | "fx"
+  | "dashboard" | "sandboxCommand" | "fund" | "holdings" | "trades" | "security" | "pricing" | "fx"
   | "aiCopilot" | "editableFields" | "structureComparison" | "cashRecon" | "positionRecon" | "reconBreaks" | "corporateActions" | "dividends" | "coupons"
   | "otc" | "mtm" | "gl" | "trialBalance" | "pl" | "balanceSheet" | "nav"
   | "capital" | "subsReds" | "mgmtFees" | "perfFees" | "equalization" | "waterfall"
@@ -140,6 +140,8 @@ export type ValidationSeverity = "Info" | "Warning" | "Critical";
 export type ScenarioDifficulty = "Beginner" | "Intermediate" | "Advanced" | "Real World Ops" | "NAV Oversight" | "Crisis Simulation";
 export type ScenarioFundType = "Hedge Fund" | "Long Only Fund" | "Fund of Funds" | "ETF" | "Multi-Strategy Fund" | "Credit Fund" | "Private Equity Fund" | "Real Estate Fund";
 export type TrainingMode = "Sandbox" | "Live Mode";
+export type SandboxRole = "Analyst (0-4 Years)" | "Senior Analyst / SME (4-10 Years)" | "Fund Controller / Signoff Authority (10+ Years)";
+export type SandboxTrack = "Reconciliation Operations" | "Pricing & Valuation" | "NAV Oversight" | "Transfer Agency" | "Corporate Actions" | "Fee Operations" | "Workflow & Signoff" | "Investor Allocation" | "Operational Risk" | "Audit & Governance";
 
 export interface ValidationIssue {
   id: string;

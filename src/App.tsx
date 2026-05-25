@@ -503,20 +503,23 @@ function objectRows(title: string, rows: ExportRow[], source = "Live simulator s
 }
 
 function worksheetXml(rows: XlsxCell[][]) {
+  const maxCols = rows.reduce((max, row) => Math.max(max, row.length), 1);
+  const cols = `<cols>${Array.from({ length: maxCols }, (_, i) => `<col min="${i + 1}" max="${i + 1}" width="${i === 0 ? 28 : 18}" customWidth="1"/>`).join("")}</cols>`;
   const body = rows.map((row, rIdx) => {
     const cells = row.map((cell, cIdx) => {
       const ref = `${columnName(cIdx)}${rIdx + 1}`;
+      const style = rIdx === 0 ? 2 : rIdx === 3 ? 1 : 0;
       if (cell && typeof cell === "object" && "formula" in cell) {
         const result = cell.result ?? 0;
-        return `<c r="${ref}" s="${rIdx === 0 ? 2 : 0}"><f>${xmlEscape(cell.formula)}</f><v>${xmlEscape(result)}</v></c>`;
+        return `<c r="${ref}" s="${style}"><f>${xmlEscape(cell.formula)}</f><v>${xmlEscape(result)}</v></c>`;
       }
-      if (typeof cell === "number") return `<c r="${ref}" s="${rIdx === 3 ? 1 : 0}"><v>${Number.isFinite(cell) ? cell : 0}</v></c>`;
-      if (typeof cell === "boolean") return `<c r="${ref}" t="b" s="${rIdx === 3 ? 1 : 0}"><v>${cell ? 1 : 0}</v></c>`;
-      return `<c r="${ref}" t="inlineStr" s="${rIdx === 0 ? 2 : rIdx === 3 ? 1 : 0}"><is><t>${xmlEscape(cell)}</t></is></c>`;
+      if (typeof cell === "number") return `<c r="${ref}" s="${style}"><v>${Number.isFinite(cell) ? cell : 0}</v></c>`;
+      if (typeof cell === "boolean") return `<c r="${ref}" t="b" s="${style}"><v>${cell ? 1 : 0}</v></c>`;
+      return `<c r="${ref}" t="inlineStr" s="${style}"><is><t>${xmlEscape(cell)}</t></is></c>`;
     }).join("");
     return `<row r="${rIdx + 1}">${cells}</row>`;
   }).join("");
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="16"/><sheetData>${body}</sheetData><pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="16"/>${cols}<sheetData>${body}</sheetData><pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>`;
 }
 
 const crcTable = (() => {
@@ -609,7 +612,7 @@ function downloadXlsx(name: string, sheets: XlsxSheet[]) {
     { path: "_rels/.rels", content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
     {
       path: "xl/workbook.xml",
-      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${safeSheets.map((sheet, i) => `<sheet name="${xmlEscape(sheet.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets><calcPr calcMode="auto"/></workbook>`,
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><workbookPr/><sheets>${safeSheets.map((sheet, i) => `<sheet name="${xmlEscape(sheet.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets><calcPr calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>`,
     },
     {
       path: "xl/_rels/workbook.xml.rels",
@@ -617,7 +620,7 @@ function downloadXlsx(name: string, sheets: XlsxSheet[]) {
     },
     {
       path: "xl/styles.xml",
-      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="3"><font><sz val="10"/><name val="Arial"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="10"/><name val="Arial"/></font><font><b/><color rgb="FF00E599"/><sz val="14"/><name val="Arial"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF102027"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF001B22"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellXfs count="3"><xf fontId="0" fillId="0" borderId="0" xfId="0"/><xf fontId="1" fillId="1" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf fontId="2" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs></styleSheet>`,
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="$#,##0;($#,##0);-"/></numFmts><fonts count="3"><font><sz val="10"/><color rgb="FF111827"/><name val="Arial"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="10"/><name val="Arial"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="14"/><name val="Arial"/></font></fonts><fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF17365D"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0B1F33"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FF7F8FA6"/></left><right style="thin"><color rgb="FF7F8FA6"/></right><top style="thin"><color rgb="FF7F8FA6"/></top><bottom style="thin"><color rgb="FF7F8FA6"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" numFmtId="164" applyNumberFormat="1"/><xf fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/><xf fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`,
     },
     ...safeSheets.map((sheet, i) => ({ path: `xl/worksheets/sheet${i + 1}.xml`, content: worksheetXml(sheet.rows) })),
   ];
@@ -627,6 +630,19 @@ function downloadXlsx(name: string, sheets: XlsxSheet[]) {
   a.download = name;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function linkedNavPackSheets(sheets: XlsxSheet[], r: ReturnType<typeof useRecalc>) {
+  return sheets.map((sheet) => ({
+    ...sheet,
+    rows: [
+      ...sheet.rows,
+      [],
+      ["Workbook Link", { formula: "'36_NAV_Calculation_Working'!B7", result: r.netAssets }, "Current NAV"],
+      ["NAV/share Link", { formula: "'36_NAV_Calculation_Working'!B9", result: r.navPerShare }, "Current NAV per share"],
+      ["Control Link", { formula: "'39_Control_Checks'!B5", result: "Linked control status" }, "Workbook-level check reference"],
+    ],
+  }));
 }
 
 const editableMatrix = [
@@ -2856,7 +2872,7 @@ function buildInstitutionalNavPack(store: FundState, r: ReturnType<typeof useRec
     ["Realized Gain/Loss", r.realizedGains, "Closed trade activity"],
     ["FX Impact", r.fxGainLoss, "Base currency retranslation"],
   ];
-  return [
+  const sheets: XlsxSheet[] = [
     { name: "01_Operations_Dashboard", rows: objectRows("01_Operations_Dashboard", [
       { Metric: "NAV Status", Value: openBreaks.some((b) => b.severity === "High") ? "NAV RELEASE BLOCKED" : "Draft T+0" },
       { Metric: "Pending Approvals", Value: store.fundSetup.workflowStatus },
@@ -2996,6 +3012,86 @@ function buildInstitutionalNavPack(store: FundState, r: ReturnType<typeof useRec
       { Stage: "NAV Manager", Status: store.fundSetup.workflowStatus === "NAV Published" ? "Approved" : "Pending", User: "NAV Manager", Timestamp: "", Comments: "Final release control" },
     ]) },
   ];
+  return linkedNavPackSheets(sheets, r);
+}
+
+function buildNavDashboardWorkbook(store: FundState, r: ReturnType<typeof useRecalc>): XlsxSheet[] {
+  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const criticalBreaks = openBreaks.filter((b) => b.severity === "Critical" || b.severity === "High");
+  const pendingApprovals = store.fundSetup.workflowStatus === "NAV Published" ? 0 : 1;
+  const priorNav = store.activeScenarioImpact?.before.nav ?? r.netAssets - r.unrealizedGains * 0.05;
+  const navMove = r.netAssets - priorNav;
+  const navMovePct = priorNav ? navMove / Math.abs(priorNav) : 0;
+  const navBlocked = criticalBreaks.length > 0 || pendingApprovals > 0;
+  const dashboardRows: XlsxCell[][] = [
+    ["SYED FUND SIMULATOR - NAV Dashboard"],
+    ["Generated", new Date().toLocaleString(), "Source", "Live simulator state"],
+    [],
+    ["Metric", "Value", "Formula / Source", "Status"],
+    ["NAV Status", navBlocked ? "NAV RELEASE BLOCKED" : "READY FOR SIGNOFF", "Breaks + approval readiness", navBlocked ? "Review" : "Ready"],
+    ["Current NAV", { formula: "'NAV_Working'!B7", result: r.netAssets }, "Linked to NAV working", "Live"],
+    ["NAV/share", { formula: "'NAV_Working'!B9", result: r.navPerShare }, "Current NAV / shares", "Live"],
+    ["Open Breaks", { formula: "'Break_Dashboard'!B5", result: openBreaks.length }, "Linked to break dashboard", openBreaks.length ? "Review" : "Clear"],
+    ["Critical Breaks", { formula: "'Break_Dashboard'!B6", result: criticalBreaks.length }, "High/Critical severity", criticalBreaks.length ? "Blocked" : "Clear"],
+    ["NAV Movement", { formula: "'NAV_Bridge'!B7", result: navMove }, "Current NAV - prior NAV", navMove >= 0 ? "Positive" : "Negative"],
+    ["NAV Movement %", { formula: "'NAV_Bridge'!B8", result: navMovePct }, "NAV movement / prior NAV", Math.abs(navMovePct) > 0.005 ? "Material" : "Normal"],
+    ["Pending Approvals", pendingApprovals, "Workflow approval queue", pendingApprovals ? "Pending" : "Clear"],
+  ];
+  const navWorkingRows: XlsxCell[][] = [
+    ["NAV_Working"],
+    ["Generated", new Date().toLocaleString(), "Source", "Dashboard linked working"],
+    [],
+    ["Component", "Amount", "Formula / Source"],
+    ["Gross Assets", r.grossAssets, "Live recalculation engine"],
+    ["Liabilities", r.liabilities, "Live recalculation engine"],
+    ["Net Assets", { formula: "B5-B6", result: r.netAssets }, "Gross Assets - Liabilities"],
+    ["Outstanding Shares", r.sharesOutstanding, "Share register"],
+    ["NAV/share", { formula: "B7/B8", result: r.navPerShare }, "Net Assets / Outstanding Shares"],
+    ["Management Fee", r.managementFee, "Fee engine"],
+    ["Performance Fee", r.performanceFee, "Fee engine"],
+    ["Unrealized P&L", r.unrealizedGains, "Holdings valuation"],
+    ["FX Impact", r.fxGainLoss, "FX translation"],
+  ];
+  const bridgeRows: XlsxCell[][] = [
+    ["NAV_Bridge"],
+    ["Generated", new Date().toLocaleString(), "Source", "Dashboard linked bridge"],
+    [],
+    ["Component", "Amount", "Formula / Source"],
+    ["Prior NAV", priorNav, "Prior close / scenario baseline"],
+    ["Current NAV", { formula: "'NAV_Working'!B7", result: r.netAssets }, "Linked to NAV working"],
+    ["NAV Movement", { formula: "B6-B5", result: navMove }, "Current - prior"],
+    ["NAV Movement %", { formula: "B7/B5", result: navMovePct }, "Movement / prior"],
+    ...navMovementBridgeRows(store, r).map((row) => [String(row.Component), Number(row.Amount), String((row as { Note?: string }).Note ?? "Live recalculation driver")] as XlsxCell[]),
+  ];
+  const breakRows: XlsxCell[][] = [
+    ["Break_Dashboard"],
+    ["Generated", new Date().toLocaleString(), "Source", "Open exception queue"],
+    [],
+    ["Metric", "Value", "Formula / Source"],
+    ["Open Break Count", openBreaks.length, "Unapproved/unclosed breaks"],
+    ["Critical Break Count", criticalBreaks.length, "High/Critical break filter"],
+    ["Total NAV Impact", openBreaks.reduce((sum, b) => sum + Math.abs(b.navImpact), 0), "Abs NAV impact of open breaks"],
+    [],
+    ["Break ID", "Type", "Severity", "Aging", "Owner", "NAV Impact", "Status"],
+    ...openBreaks.map((b) => [b.id, b.breakType, b.severity, b.aging, b.owner, b.navImpact, b.status] as XlsxCell[]),
+  ];
+  const controlRows: XlsxCell[][] = [
+    ["Dashboard_Control_Checks"],
+    ["Generated", new Date().toLocaleString(), "Source", "Linked dashboard controls"],
+    [],
+    ["Check", "Result", "Formula / Source"],
+    ["NAV equals assets less liabilities", { formula: "IF(ABS('NAV_Working'!B7-('NAV_Working'!B5-'NAV_Working'!B6))<1,\"Pass\",\"Fail\")", result: "Pass" }, "NAV_Working"],
+    ["Critical breaks clear", { formula: "IF('Break_Dashboard'!B6=0,\"Pass\",\"Fail\")", result: criticalBreaks.length ? "Fail" : "Pass" }, "Break_Dashboard"],
+    ["Approval ready", pendingApprovals ? "Fail" : "Pass", "Workflow status"],
+    ["NAV release status", { formula: "IF(AND(B5=\"Pass\",B6=\"Pass\",B7=\"Pass\"),\"READY\",\"BLOCKED\")", result: navBlocked ? "BLOCKED" : "READY" }, "Control summary"],
+  ];
+  return [
+    { name: "NAV_Dashboard", rows: dashboardRows },
+    { name: "NAV_Working", rows: navWorkingRows },
+    { name: "NAV_Bridge", rows: bridgeRows },
+    { name: "Break_Dashboard", rows: breakRows },
+    { name: "Dashboard_Control_Checks", rows: controlRows },
+  ];
 }
 
 function ExportView() {
@@ -3017,7 +3113,21 @@ function ExportView() {
     { label: "Daily Control Checklist", name: "daily-control-checklist.csv", kind: "checklist" },
     { label: "Interview Practice Report", name: "interview-practice-report.csv", kind: "interview" },
   ];
-  return <section className="panel full"><PanelTitle title="Financial Statements Export" right="Institutional NAV, operations and training packs" /><div className="scenario-grid big"><button className="scenario-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_Institutional_NAV_Pack.xlsx", buildInstitutionalNavPack(store, r))}><FileSpreadsheet size={16} />Institutional 50-Sheet NAV Pack</button>{["PDF NAV Pack", "Investor Statement", "Trial Balance", "P&L", "Balance Sheet"].map((x) => <button className="scenario-button" key={x} onClick={() => download(`${x.replaceAll(" ", "-").toLowerCase()}.csv`, csv)}><Download size={16} />{x}</button>)}{packs.map((pack) => <button className="scenario-button" key={pack.name} onClick={() => downloadCsv(pack.name, opsPackRows(pack.kind, store, r))}><FileDown size={16} />{pack.label}</button>)}</div></section>;
+  return (
+    <section className="panel full">
+      <PanelTitle title="Financial Statements Export" right="Institutional NAV, operations and training packs" />
+      <div className="scenario-grid big">
+        <button className="scenario-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_NAV_Pack_50_Sheets.xlsx", buildInstitutionalNavPack(store, r))}>
+          <FileSpreadsheet size={16} /> NAV Pack (50 Sheets)
+        </button>
+        <button className="scenario-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_NAV_Dashboard.xlsx", buildNavDashboardWorkbook(store, r))}>
+          <FileSpreadsheet size={16} /> NAV Dashboard
+        </button>
+        {["PDF NAV Pack", "Investor Statement", "Trial Balance", "P&L", "Balance Sheet"].map((x) => <button className="scenario-button" key={x} onClick={() => download(`${x.replaceAll(" ", "-").toLowerCase()}.csv`, csv)}><Download size={16} />{x}</button>)}
+        {packs.map((pack) => <button className="scenario-button" key={pack.name} onClick={() => downloadCsv(pack.name, opsPackRows(pack.kind, store, r))}><FileDown size={16} />{pack.label}</button>)}
+      </div>
+    </section>
+  );
 }
 
 function impactDelta(before = 0, after = 0) {

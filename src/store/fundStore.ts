@@ -342,7 +342,7 @@ export const useFundStore = create<FundState>()(
       sandboxSlaMinutes: 105,
       sandboxTimeEvent: "Base T+0 operations window",
       manualEditMode: true,
-      aiPanelOpen: true,
+      aiPanelOpen: false,
       copilotContext: null,
       activeScenarioId: null,
       activeScenarioImpact: null,
@@ -644,7 +644,7 @@ export const useFundStore = create<FundState>()(
           },
         };
       }),
-      toggleLearningMode: () => set((s) => ({ learningMode: !s.learningMode, aiPanelOpen: true })),
+      toggleLearningMode: () => set((s) => ({ learningMode: !s.learningMode })),
       setTrainingMode: (trainingMode) => set((s) => {
         if (trainingMode === s.trainingMode) return {};
         const currentBook = captureBook(s);
@@ -661,7 +661,7 @@ export const useFundStore = create<FundState>()(
           sandboxBook: savedSandboxBook,
           trainingMode,
           learningMode: trainingMode === "Sandbox",
-          aiPanelOpen: trainingMode === "Sandbox" ? true : s.aiPanelOpen,
+          aiPanelOpen: s.aiPanelOpen,
           activeScenarioImpact: { before, after },
           manualBaseline: after,
           impactedModules: ["dashboard", "nav", "workflow", "audit", "ops"],
@@ -729,7 +729,7 @@ export const useFundStore = create<FundState>()(
         auditTrail: [audit("Manual data edit mode", s.manualEditMode ? "Enabled" : "Disabled", !s.manualEditMode ? "Enabled" : "Disabled", ["editableFields", "audit"], "Manual data control"), ...s.auditTrail].slice(0, 100),
       })),
       setAiPanelOpen: (aiPanelOpen) => set({ aiPanelOpen }),
-      explainContext: (copilotContext) => set((s) => ({ copilotContext, aiPanelOpen: true, auditTrail: [audit("AI explanation", "Context selected", copilotContext.title, ["audit", copilotContext.tab], "AI-assisted action"), ...s.auditTrail].slice(0, 100) })),
+      explainContext: (copilotContext) => set((s) => ({ copilotContext, auditTrail: [audit("AI explanation", "Context selected", copilotContext.title, ["audit", copilotContext.tab], "AI-assisted action"), ...s.auditTrail].slice(0, 100) })),
       setFee: (kind, value) => set((s) => ({
         manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
         [kind === "management" ? "managementFeePct" : "performanceFeePct"]: value,

@@ -3845,6 +3845,11 @@ function AuthGate({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
+  const setAiPanelOpen = useFundStore((s) => s.setAiPanelOpen);
+  useEffect(() => {
+    setAiPanelOpen(false);
+  }, [setAiPanelOpen]);
+
   return (
     <>
       <SignedOut>

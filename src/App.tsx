@@ -720,6 +720,7 @@ function EditableText({ value, onCommit }: { value: string; onCommit: (value: st
 function ManualSubmitBar({ label, fields }: { label: string; fields: string }) {
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
   const submitManualUpdates = useFundStore((s) => s.submitManualUpdates);
+  const raiseCorrectionWorkflow = useFundStore((s) => s.raiseCorrectionWorkflow);
   const store = useFundStore();
   const r = useRecalc();
   const activeLabel = modules.find((m) => m.id === store.activeModule)?.label ?? "module";
@@ -734,8 +735,16 @@ function ManualSubmitBar({ label, fields }: { label: string; fields: string }) {
         <span>Editable fields: {fields}</span>
       </div>
       <button className="terminal-button" onClick={handleSubmit}>
-        <BookOpenCheck size={15} /> Submit Manual Update & Recalculate NAV
+        <BookOpenCheck size={15} /> {store.trainingMode === "Sandbox" ? "Submit Sandbox Update & Recalculate NAV" : "Submit Control Recalculation"}
       </button>
+      {store.trainingMode === "Live Mode" && (
+        <button className="terminal-button reject" onClick={() => {
+          raiseCorrectionWorkflow(label, fields);
+          setSubmittedAt(new Date().toLocaleTimeString());
+        }}>
+          <AlertTriangle size={15} /> Raise NAV Correction
+        </button>
+      )}
       <button className="terminal-button" onClick={() => downloadCsv(`${store.activeModule}-current-data.csv`, exportRowsForModule(store.activeModule, store, r))}>
         <Download size={15} /> Download Current Data
       </button>
@@ -743,7 +752,7 @@ function ManualSubmitBar({ label, fields }: { label: string; fields: string }) {
         <FileDown size={15} /> Download Impact Report
       </button>
       {submittedAt && <small>Submitted {submittedAt}</small>}
-      {!submittedAt && <small>{activeLabel} evidence pack</small>}
+      {!submittedAt && <small>{store.trainingMode === "Sandbox" ? `${activeLabel} sandbox evidence pack` : `${activeLabel} production change control`}</small>}
     </div>
   );
 }

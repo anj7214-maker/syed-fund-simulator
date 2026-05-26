@@ -144,10 +144,75 @@ type BackendPostingPayload = {
   posted_at: string;
 };
 
+type OperatingBook = {
+  holdings: Holding[];
+  fundSetup: FundSetup;
+  securityMaster: SecurityMaster[];
+  corporateActions: CorporateAction[];
+  cashRecon: CashReconRow[];
+  positionRecon: PositionReconRow[];
+  breaks: BreakItem[];
+  uploads: UploadBatch[];
+  trades: Trade[];
+  fxRates: FxRate[];
+  investors: Investor[];
+  activities: CapitalActivity[];
+  accruals: typeof sampleAccruals;
+  derivatives: Derivative[];
+  managementFeePct: number;
+  performanceFeePct: number;
+  backendGlPostings: JournalEntry[];
+  backendNavAdjustments: number;
+};
+
+const baseBook = (): OperatingBook => ({
+  holdings: sampleHoldings,
+  fundSetup: sampleFundSetup,
+  securityMaster: sampleSecurityMaster,
+  corporateActions: sampleCorporateActions,
+  cashRecon: sampleCashRecon,
+  positionRecon: samplePositionRecon,
+  breaks: sampleBreaks,
+  uploads: sampleUploads,
+  trades: sampleTrades,
+  fxRates: sampleFx,
+  investors: sampleInvestors,
+  activities: sampleActivities,
+  accruals: sampleAccruals,
+  derivatives: sampleDerivatives,
+  managementFeePct: 0.015,
+  performanceFeePct: 0.2,
+  backendGlPostings: [],
+  backendNavAdjustments: 0,
+});
+
+const captureBook = (s: FundState): OperatingBook => ({
+  holdings: s.holdings,
+  fundSetup: s.fundSetup,
+  securityMaster: s.securityMaster,
+  corporateActions: s.corporateActions,
+  cashRecon: s.cashRecon,
+  positionRecon: s.positionRecon,
+  breaks: s.breaks,
+  uploads: s.uploads,
+  trades: s.trades,
+  fxRates: s.fxRates,
+  investors: s.investors,
+  activities: s.activities,
+  accruals: s.accruals,
+  derivatives: s.derivatives,
+  managementFeePct: s.managementFeePct,
+  performanceFeePct: s.performanceFeePct,
+  backendGlPostings: s.backendGlPostings,
+  backendNavAdjustments: s.backendNavAdjustments,
+});
+
 export interface FundState {
   activeModule: ModuleId;
   collapsed: boolean;
   fundMode: string;
+  liveBook: OperatingBook | null;
+  sandboxBook: OperatingBook | null;
   holdings: Holding[];
   fundSetup: FundSetup;
   securityMaster: SecurityMaster[];
@@ -208,6 +273,7 @@ export interface FundState {
   explainContext: (context: CopilotContext) => void;
   setFee: (kind: "management" | "performance", value: number) => void;
   submitManualUpdates: (label: string, fields: string) => void;
+  raiseCorrectionWorkflow: (label: string, fields: string) => void;
   applyScenario: (scenario: string) => void;
   submitScenario: (learnerResponse: string) => void;
   resetScenario: () => void;
@@ -259,6 +325,8 @@ export const useFundStore = create<FundState>()(
       activeModule: "dashboard",
       collapsed: false,
       fundMode: "Multi-Strategy Fund",
+      liveBook: null,
+      sandboxBook: null,
       holdings: sampleHoldings,
       fundSetup: sampleFundSetup,
       securityMaster: sampleSecurityMaster,
@@ -577,12 +645,41 @@ export const useFundStore = create<FundState>()(
         };
       }),
       toggleLearningMode: () => set((s) => ({ learningMode: !s.learningMode, aiPanelOpen: true })),
-      setTrainingMode: (trainingMode) => set((s) => ({
-        trainingMode,
-        learningMode: trainingMode === "Sandbox",
-        aiPanelOpen: trainingMode === "Sandbox" ? true : s.aiPanelOpen,
-        auditTrail: [audit("Operating mode", s.trainingMode, trainingMode, ["scenario", "aiCopilot", "audit"], "Mode switch"), ...s.auditTrail].slice(0, 100),
-      })),
+      setTrainingMode: (trainingMode) => set((s) => {
+        if (trainingMode === s.trainingMode) return {};
+        const currentBook = captureBook(s);
+        const savedLiveBook = s.trainingMode === "Live Mode" ? currentBook : s.liveBook;
+        const savedSandboxBook = s.trainingMode === "Sandbox" ? currentBook : s.sandboxBook;
+        const targetBook = trainingMode === "Sandbox"
+          ? savedSandboxBook ?? baseBook()
+          : savedLiveBook ?? baseBook();
+        const before = createImpactSnapshot(s);
+        const after = createImpactSnapshot({ ...s, ...targetBook });
+        return {
+          ...targetBook,
+          liveBook: savedLiveBook,
+          sandboxBook: savedSandboxBook,
+          trainingMode,
+          learningMode: trainingMode === "Sandbox",
+          aiPanelOpen: trainingMode === "Sandbox" ? true : s.aiPanelOpen,
+          activeScenarioImpact: { before, after },
+          manualBaseline: after,
+          impactedModules: ["dashboard", "nav", "workflow", "audit", "ops"],
+          auditTrail: [
+            audit("Operating data layer", s.trainingMode, trainingMode, ["dashboard", "nav", "workflow", "audit", "ops"], trainingMode === "Sandbox" ? "Sandbox book loaded" : "Live production book restored"),
+            ...s.auditTrail,
+          ].slice(0, 100),
+          copilotContext: {
+            tab: s.activeModule,
+            title: `${trainingMode} data layer active`,
+            summary: trainingMode === "Sandbox" ? "Sandbox is now using an isolated practice book. Edits and scenarios here will not change the live oversight book." : "Live Mode restored the production oversight book. Sandbox interventions remain isolated in the sandbox layer.",
+            accountingImpact: "NAV, GL, TB, P&L, balance sheet, breaks and investor capital were recalculated from the selected operating book.",
+            navImpact: `NAV moved from ${before.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })} to ${after.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })}.`,
+            recommendedAction: trainingMode === "Sandbox" ? "Use Sandbox for manual practice, scenario injection and what-if intervention." : "Use production correction workflow for live amendments requiring maker-checker review.",
+            relatedEntries: ["Live/Sandbox data layer", "NAV Package", "Audit Trail", "Workflow Approval Queue"],
+          },
+        };
+      }),
       setSandboxRole: (sandboxRole) => set((s) => ({
         sandboxRole,
         impactedModules: ["sandboxCommand", "workflow", "exceptions", "audit"],
@@ -670,6 +767,52 @@ export const useFundStore = create<FundState>()(
             navImpact: `NAV moved from ${before.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })} to ${after.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })}, a delta of ${navDelta.toLocaleString("en-US", { maximumFractionDigits: 2 })}.`,
             recommendedAction: "Review Impact Summary, dependency flow, materiality status and maker-checker approval before NAV release.",
             relatedEntries: impactedModules.map((module) => module),
+          },
+        };
+      }),
+      raiseCorrectionWorkflow: (label, fields) => set((s) => {
+        const before = s.manualBaseline ?? createImpactSnapshot(s);
+        const after = createImpactSnapshot(s);
+        const navDelta = after.nav - before.nav;
+        const impact = Math.abs(navDelta);
+        const correction: BreakItem = {
+          id: `CORR-${Math.floor(1000 + Math.random() * 9000)}`,
+          breakType: "NAV Variance",
+          severity: impact > 5_000_000 ? "Critical" : impact > 1_000_000 ? "High" : impact > 100_000 ? "Medium" : "Low",
+          aging: 0,
+          owner: "NAV Control",
+          navImpact: impact,
+          rootCause: `${label} correction request raised from Live Mode`,
+          status: "Pending External Party",
+          resolutionNotes: `Production change-control request for fields: ${fields}. Requires maker-checker evidence before GL/NAV release.`,
+          escalationLevel: impact > 5_000_000 ? "CFO" : impact > 1_000_000 ? "L3" : "L2",
+          comments: ["Raised via production correction workflow", "Requires reviewer approval before NAV publication"],
+          slaHours: impact > 1_000_000 ? 4 : 24,
+        };
+        const impactedModules: ModuleId[] = s.impactedModules.length
+          ? Array.from(new Set([...s.impactedModules, "workflow", "reconBreaks", "exceptions", "audit", "ops"]))
+          : ["workflow", "reconBreaks", "exceptions", "gl", "trialBalance", "pl", "balanceSheet", "nav", "audit", "ops"];
+        return {
+          breaks: [correction, ...s.breaks],
+          activeScenarioImpact: { before, after },
+          manualBaseline: after,
+          impactedModules,
+          flashed: { ...s.flashed, "correction-workflow": "down", nav: navDelta >= 0 ? "up" : "down" },
+          auditTrail: [audit(
+            `Production correction: ${label}`,
+            `NAV ${before.nav.toLocaleString("en-US")}`,
+            `NAV ${after.nav.toLocaleString("en-US")}`,
+            impactedModules,
+            "Raised NAV correction workflow",
+          ), ...s.auditTrail].slice(0, 100),
+          copilotContext: {
+            tab: s.activeModule,
+            title: `${label} correction workflow raised`,
+            summary: "A live production correction item has been created. This keeps the amendment visible as a controlled NAV change rather than a silent manual override.",
+            accountingImpact: "The correction is now tracked through exception management, workflow approval, audit trail, NAV controls and release readiness.",
+            navImpact: `Estimated NAV impact is ${impact.toLocaleString("en-US", { maximumFractionDigits: 2 })}; NAV moved from ${before.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })} to ${after.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })}.`,
+            recommendedAction: "Attach support, reviewer comments and approval evidence before posting or publishing NAV.",
+            relatedEntries: ["Production Correction Workflow", "Exception Management", "Workflow Approval Queue", "NAV Package", "Audit Trail"],
           },
         };
       }),

@@ -49,6 +49,89 @@ const positionReconStatus = (row: PositionReconRow): Pick<PositionReconRow, "sta
   };
 };
 
+const positionBreakImpact = (row: PositionReconRow, holdings: Holding[]) => {
+  const holding = holdings.find((h) => h.ticker === row.ticker);
+  const unitValue = holding ? Math.abs(holding.marketPrice * holding.fxRate) : 1;
+  return Math.round(Math.max(Math.abs(row.internalPosition - row.custodianPosition), Math.abs(row.internalPosition - row.pbPosition)) * unitValue);
+};
+
+const cashBreakImpact = (row: CashReconRow) =>
+  Math.round(Math.max(Math.abs(row.internalLedgerCash - row.custodianCash), Math.abs(row.internalLedgerCash - row.primeBrokerCash)));
+
+const syncCashBreaks = (breaks: BreakItem[], row: CashReconRow): BreakItem[] => {
+  const matched = Math.abs(row.internalLedgerCash - row.custodianCash) < 1
+    && Math.abs(row.internalLedgerCash - row.primeBrokerCash) < 1;
+  const impact = matched ? 0 : cashBreakImpact(row);
+  let touched = false;
+  const next = breaks.map((item) => {
+    const related = item.breakType === "Cash"
+      && (item.rootCause.toLowerCase().includes(row.currency.toLowerCase()) || item.id.toLowerCase().includes(row.currency.toLowerCase()));
+    if (!related) return item;
+    touched = true;
+    return {
+      ...item,
+      navImpact: impact,
+      severity: matched ? "Low" as const : impact > 1_000_000 ? "High" as const : impact > 100_000 ? "Medium" as const : "Low" as const,
+      status: matched ? "Resolved" as const : item.status === "Resolved" ? "Investigating" as const : item.status,
+      resolutionNotes: matched ? "Internal ledger, custodian and prime broker cash now reconcile." : item.resolutionNotes,
+      comments: matched ? ["Auto-resolved from cash reconciliation tie-out", ...item.comments].slice(0, 5) : item.comments,
+    };
+  });
+  if (touched || matched) return next;
+  const generatedBreak: BreakItem = {
+    id: `BRK-CASH-${row.currency}`,
+    breakType: "Cash",
+    severity: impact > 1_000_000 ? "High" : impact > 100_000 ? "Medium" : "Low",
+    aging: 0,
+    owner: row.owner,
+    navImpact: impact,
+    rootCause: `${row.currency} cash reconciliation mismatch`,
+    status: "Open",
+    resolutionNotes: row.breakReason,
+    escalationLevel: impact > 1_000_000 ? "L2" : "L1",
+    comments: ["Generated from manual cash reconciliation update"],
+    slaHours: impact > 1_000_000 ? 24 : 48,
+  };
+  return [generatedBreak, ...next];
+};
+
+const syncPositionBreaks = (breaks: BreakItem[], row: PositionReconRow, holdings: Holding[]): BreakItem[] => {
+  const matched = Math.abs(row.internalPosition - row.custodianPosition) < 1
+    && Math.abs(row.internalPosition - row.pbPosition) < 1;
+  const impact = matched ? 0 : positionBreakImpact(row, holdings);
+  let touched = false;
+  const next = breaks.map((item) => {
+    const related = item.breakType === "Position"
+      && (item.rootCause.toLowerCase().includes(row.ticker.toLowerCase()) || item.id.toLowerCase().includes(row.ticker.toLowerCase()));
+    if (!related) return item;
+    touched = true;
+    return {
+      ...item,
+      navImpact: impact,
+      severity: matched ? "Low" as const : impact > 1_000_000 ? "High" as const : impact > 100_000 ? "Medium" as const : "Low" as const,
+      status: matched ? "Resolved" as const : item.status === "Resolved" ? "Investigating" as const : item.status,
+      resolutionNotes: matched ? "Source reconciliation now matches internal, custodian and PB records." : item.resolutionNotes,
+      comments: matched ? ["Auto-resolved from position reconciliation tie-out", ...item.comments].slice(0, 5) : item.comments,
+    };
+  });
+  if (touched || matched) return next;
+  const generatedBreak: BreakItem = {
+    id: `BRK-POS-${row.ticker.replace(/\W+/g, "-")}`,
+    breakType: "Position",
+    severity: impact > 1_000_000 ? "High" : impact > 100_000 ? "Medium" : "Low",
+    aging: 0,
+    owner: row.owner,
+    navImpact: impact,
+    rootCause: `${row.ticker} position reconciliation mismatch`,
+    status: "Open",
+    resolutionNotes: row.breakReason,
+    escalationLevel: impact > 1_000_000 ? "L2" : "L1",
+    comments: ["Generated from manual position reconciliation update"],
+    slaHours: impact > 1_000_000 ? 24 : 48,
+  };
+  return [generatedBreak, ...next];
+};
+
 type BackendPostingPayload = {
   posting_id: string;
   approval_id: string;
@@ -270,35 +353,71 @@ export const useFundStore = create<FundState>()(
         const old = s.cashRecon.find((row) => row.id === id)?.[field];
         const numericFields = ["internalLedgerCash", "custodianCash", "primeBrokerCash"] as Array<keyof CashReconRow>;
         const nextValue = numericFields.includes(field) ? Number(value) : value;
+        let updatedRow: CashReconRow | undefined;
         const cashRecon = s.cashRecon.map((row) => {
           if (row.id !== id) return row;
           const updated = { ...row, [field]: nextValue } as CashReconRow;
-          return { ...updated, status: cashReconStatus(updated) };
+          updatedRow = { ...updated, status: cashReconStatus(updated) };
+          return updatedRow;
         });
+        const breaks = updatedRow ? syncCashBreaks(s.breaks, updatedRow) : s.breaks;
+        const before = s.manualBaseline ?? createImpactSnapshot(s);
+        const after = createImpactSnapshot({ ...s, cashRecon, breaks });
         return {
-          manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
+          manualBaseline: before,
+          activeScenarioImpact: { before, after },
           cashRecon,
+          breaks,
           impactedModules: impacts.cashRecon,
           flashed: { [`${id}-${String(field)}`]: Number(nextValue) >= Number(old ?? 0) ? "up" : "down" },
           auditTrail: [audit(`Cash recon ${id}.${String(field)}`, old, nextValue, impacts.cashRecon, "Cash reconciliation amendment"), ...s.auditTrail].slice(0, 100),
+          copilotContext: updatedRow ? {
+            tab: "cashRecon",
+            title: `${updatedRow.currency} cash reconciliation updated`,
+            summary: `Internal, custodian and prime broker cash were rechecked. Status is now ${updatedRow.status}.`,
+            accountingImpact: "Cash reconciliation amendments refresh cash breaks, exception status, NAV controls, audit trail and operational release blockers.",
+            navImpact: `NAV moved from ${before.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })} to ${after.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })}.`,
+            recommendedAction: updatedRow.status === "Resolved" ? "Attach evidence and route the resolved cash item for checker approval." : "Investigate the remaining custodian or prime broker cash variance.",
+            relatedEntries: ["Cash Reconciliation", "Reconciliation Breaks", "Exception Management", "NAV Package", "Audit Trail"],
+          } : s.copilotContext,
         };
       }),
       updatePositionRecon: (id, field, value) => set((s) => {
         const old = s.positionRecon.find((row) => row.id === id)?.[field];
         const numericFields = ["internalPosition", "custodianPosition", "pbPosition"] as Array<keyof PositionReconRow>;
         const nextValue = numericFields.includes(field) ? Number(value) : value;
+        let updatedRow: PositionReconRow | undefined;
         const positionRecon = s.positionRecon.map((row) => {
           if (row.id !== id) return row;
           const updated = { ...row, [field]: nextValue } as PositionReconRow;
           const statusUpdate = positionReconStatus(updated);
-          return { ...updated, ...statusUpdate };
+          updatedRow = { ...updated, ...statusUpdate };
+          return updatedRow;
         });
+        const holdings = updatedRow && field === "internalPosition"
+          ? s.holdings.map((holding) => holding.ticker === updatedRow?.ticker ? { ...holding, quantity: Number(nextValue) } : holding)
+          : s.holdings;
+        const breaks = updatedRow ? syncPositionBreaks(s.breaks, updatedRow, holdings) : s.breaks;
+        const before = s.manualBaseline ?? createImpactSnapshot(s);
+        const after = createImpactSnapshot({ ...s, holdings, positionRecon, breaks });
         return {
-          manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
+          manualBaseline: before,
+          activeScenarioImpact: { before, after },
+          holdings,
           positionRecon,
+          breaks,
           impactedModules: impacts.positionRecon,
           flashed: { [`${id}-${String(field)}`]: Number(nextValue) >= Number(old ?? 0) ? "up" : "down" },
           auditTrail: [audit(`Position recon ${id}.${String(field)}`, old, nextValue, impacts.positionRecon, "Position reconciliation amendment"), ...s.auditTrail].slice(0, 100),
+          copilotContext: updatedRow ? {
+            tab: "positionRecon",
+            title: `${updatedRow.ticker} position reconciliation updated`,
+            summary: `Internal, custodian and PB quantities were rechecked. Status is now ${updatedRow.status}; settlement status is ${updatedRow.settlementStatus}.`,
+            accountingImpact: field === "internalPosition" ? "Internal book quantity changed, so holdings, unrealized P&L, GL, trial balance, balance sheet and NAV were recalculated." : "External recon side changed, so the break register, exception status, approval blockers and audit trail were refreshed.",
+            navImpact: `NAV moved from ${before.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })} to ${after.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })}.`,
+            recommendedAction: updatedRow.status === "Resolved" ? "Review evidence and route the break for checker approval before NAV release." : "Investigate the remaining custody/PB mismatch and attach source evidence.",
+            relatedEntries: ["Position Reconciliation", "Portfolio Holdings", "Reconciliation Breaks", "Exception Management", "NAV Package", "Audit Trail"],
+          } : s.copilotContext,
         };
       }),
       updateCorporateAction: (id, field, value) => set((s) => {

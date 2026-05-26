@@ -190,6 +190,8 @@ export function createImpactSnapshot(params: {
   managementFeePct: number;
   performanceFeePct: number;
   breaks: BreakItem[];
+  cashRecon?: any[];
+  positionRecon?: any[];
   manualJournalEntries?: JournalEntry[];
   backendGlPostings?: JournalEntry[];
   manualNavAdjustments?: number;
@@ -206,7 +208,7 @@ export function createImpactSnapshot(params: {
     pnl: r.pnl.reduce((sum, line) => sum + line.amount, 0),
     cash: params.activities.reduce((sum, a) => sum + (a.type === "Subscription" ? a.amount : -a.amount), 0),
     investorCapital: r.investorCapital,
-    openBreaks: params.breaks.filter((b) => !["Approved", "Closed"].includes(b.status)).length,
+    openBreaks: params.breaks.filter((b) => !["Resolved", "Approved", "Closed"].includes(b.status)).length,
     exceptions: r.exceptions.filter((e) => e.status !== "Cleared").length,
     timestamp: new Date().toISOString(),
   };

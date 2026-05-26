@@ -100,7 +100,7 @@ const fmt = (n: number, compact = false) => compact ? compactMoney(n) : Intl.Num
 }).format(n);
 const pct = (n: number) => `${(n * 100).toFixed(2)}%`;
 const num = (n: number) => Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(n);
-const openBreakCount = (store: FundState) => store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status)).length;
+const openBreakCount = (store: FundState) => store.breaks.filter((b) => !["Resolved", "Approved", "Closed"].includes(b.status)).length;
 const materiality = (nav: number, impact = 0) => {
   const ratio = nav ? Math.abs(impact) / Math.abs(nav) : 0;
   if (ratio >= 0.005) return { label: "Critical", tone: "bad" as const, ratio };
@@ -998,7 +998,7 @@ function buildOperationalQuestions(args: {
   rotation: number;
 }) {
   const { active, mode, store, r, rotation } = args;
-  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const openBreaks = store.breaks.filter((b) => !["Resolved", "Approved", "Closed"].includes(b.status));
   const criticalBreaks = openBreaks.filter((b) => b.severity === "High");
   const latestUpload = store.uploads[0];
   const dynamic: SuggestedQuestion[] = [
@@ -1035,7 +1035,7 @@ function generateCopilotReply(question: string, args: {
   const worstPnl = [...r.holdings].sort((a, b) => a.totalUnrealizedPnl - b.totalUnrealizedPnl)[0];
   const topBreak = [...store.breaks].sort((a, b) => b.navImpact - a.navImpact)[0];
   const latestUpload = store.uploads[0];
-  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const openBreaks = store.breaks.filter((b) => !["Resolved", "Approved", "Closed"].includes(b.status));
   const lastUser = [...history].reverse().find((m) => m.role === "user")?.text.toLowerCase() ?? "";
   const activeScenario = scenarioCatalog.find((scenario) => scenario.id === store.activeScenarioId);
   const lead = mode === "Learning"
@@ -1175,7 +1175,7 @@ function Header() {
     refetchInterval: 5000,
   });
   const scenarioImpact = activeScenarioImpact ? impactDelta(activeScenarioImpact.before.nav, activeScenarioImpact.after.nav).delta : 0;
-  const mat = materiality(r.netAssets, scenarioImpact || breaks.reduce((sum, b) => sum + (!["Approved", "Closed"].includes(b.status) ? b.navImpact : 0), 0));
+  const mat = materiality(r.netAssets, scenarioImpact || breaks.reduce((sum, b) => sum + (!["Resolved", "Approved", "Closed"].includes(b.status) ? b.navImpact : 0), 0));
   return (
     <header className="topbar">
       <div>
@@ -1239,7 +1239,7 @@ function LearningHint({ text }: { text: string }) {
 type OpsLens = "Analyst" | "SME" | "Manager" | "Leadership";
 
 function navReadiness(store: FundState, r: ReturnType<typeof useRecalc>) {
-  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const openBreaks = store.breaks.filter((b) => !["Resolved", "Approved", "Closed"].includes(b.status));
   const criticalBreaks = openBreaks.filter((b) => b.severity === "Critical" || b.severity === "High");
   const openExceptions = r.exceptions.filter((e) => e.status !== "Cleared");
   const failedTrades = store.trades.filter((t) => t.status === "Failed").length;
@@ -2409,7 +2409,7 @@ function SandboxCommandCenter() {
   }), [experience, designation, simulationType]);
   const [selectedId, setSelectedId] = useState<string>(filtered[0]?.id ?? scenarioCatalog[0].id);
   const selected = filtered.find((scenario) => scenario.id === selectedId) ?? filtered[0] ?? scenarioCatalog[0];
-  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const openBreaks = store.breaks.filter((b) => !["Resolved", "Approved", "Closed"].includes(b.status));
   const activeRun = store.scenarioRuns.find((run) => run.status === "Active");
   const latestCompletedRun = store.scenarioRuns.find((run) => run.status === "Passed" || run.status === "Needs Review");
   const activeScenario = scenarioCatalog.find((scenario) => scenario.id === store.activeScenarioId);
@@ -2616,15 +2616,15 @@ function avgScore(rows: RubricSection[]) {
 function QualityRubricView({ type }: { type: "ta" | "middle" | "back" }) {
   const store = useFundStore();
   const r = useRecalc();
-  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const openBreaks = store.breaks.filter((b) => !["Resolved", "Approved", "Closed"].includes(b.status));
   const criticalBreaks = openBreaks.filter((b) => b.severity === "Critical" || b.severity === "High");
   const agedBreaks = openBreaks.filter((b) => b.aging >= 3);
   const pendingActivities = store.activities.filter((a) => a.status === "Pending");
   const redemptions = store.activities.filter((a) => a.type === "Redemption");
   const pendingRedemptions = redemptions.filter((a) => a.status === "Pending");
   const largeInvestorConcentration = store.investors.filter((i) => r.investorCapital && i.capital / r.investorCapital > 0.2).length;
-  const cashBreaks = store.cashRecon.filter((c) => Math.abs(c.internalLedgerCash - c.custodianCash) > 1 || c.status !== "Approved");
-  const positionBreaks = store.positionRecon.filter((p) => Math.abs(p.internalPosition - p.custodianPosition) > 0 || p.status !== "Approved");
+  const cashBreaks = store.cashRecon.filter((c) => (Math.abs(c.internalLedgerCash - c.custodianCash) > 1 || Math.abs(c.internalLedgerCash - c.primeBrokerCash) > 1) && !["Resolved", "Approved"].includes(c.status));
+  const positionBreaks = store.positionRecon.filter((p) => (Math.abs(p.internalPosition - p.custodianPosition) > 0 || Math.abs(p.internalPosition - p.pbPosition) > 0) && !["Resolved", "Approved"].includes(p.status));
   const failedTrades = store.trades.filter((t) => t.status === "Failed");
   const pendingTrades = store.trades.filter((t) => t.status === "Pending");
   const stalePrices = r.holdings.filter((h) => !h.marketPrice || Math.abs(h.priceMovePct) > 5);
@@ -2736,11 +2736,11 @@ function QualityRubricView({ type }: { type: "ta" | "middle" | "back" }) {
 }
 
 function buildInstitutionalNavPack(store: FundState, r: ReturnType<typeof useRecalc>): XlsxSheet[] {
-  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const openBreaks = store.breaks.filter((b) => !["Resolved", "Approved", "Closed"].includes(b.status));
   const failedTrades = store.trades.filter((t) => t.status === "Failed");
   const missingPrices = r.holdings.filter((h) => !h.marketPrice || Math.abs(h.priceMovePct) > 5);
   const cashExceptions = store.cashRecon.filter((c) => Math.abs(c.internalLedgerCash - c.custodianCash) > 1);
-  const pendingRecons = [...store.cashRecon, ...store.positionRecon].filter((x) => x.status !== "Approved").length;
+  const pendingRecons = [...store.cashRecon, ...store.positionRecon].filter((x) => !["Resolved", "Approved"].includes(x.status)).length;
   const tbDebit = r.trialBalance.reduce((sum, x) => sum + x.debit, 0);
   const tbCredit = r.trialBalance.reduce((sum, x) => sum + x.credit, 0);
   const tbBalanced = Math.abs(tbDebit - tbCredit) < 1;
@@ -2922,7 +2922,7 @@ function buildInstitutionalNavPack(store: FundState, r: ReturnType<typeof useRec
     { name: "11_FX_Rates", rows: objectRows("11_FX_Rates", store.fxRates.map((fx) => ({ Pair: fx.pair, Base: fx.base, Quote: fx.quote, "Editable Rate": fx.rate, "Prior Rate": fx.priorRate, Source: fx.source }))) },
     { name: "12_Corporate_Actions", rows: objectRows("12_Corporate_Actions", store.corporateActions.map((c) => ({ Event: c.eventType, Security: c.security, "Ex-Date": c.exDate, "Pay Date": c.payDate, "Eligible Qty": c.eligibleQuantity, "Gross Amount": c.grossAmount, WHT: c.withholdingTax, "Net Receivable": c.netReceivable, Status: c.status, Posting: c.postingStatus }))) },
     { name: "13_Cash_Recon", rows: objectRows("13_Cash_Recon", store.cashRecon.map((c) => ({ Currency: c.currency, "Internal Cash": c.internalLedgerCash, "Custodian Cash": c.custodianCash, Difference: c.internalLedgerCash - c.custodianCash, "Break Reason": c.breakReason, "Match Status": Math.abs(c.internalLedgerCash - c.custodianCash) < 1 ? "Matched" : "Break", "Resolution Status": c.status }))) },
-    { name: "14_Position_Recon", rows: objectRows("14_Position_Recon", store.positionRecon.map((p) => ({ Ticker: p.ticker, Internal: p.internalPosition, Custodian: p.custodianPosition, PB: p.pbPosition, Difference: p.internalPosition - p.custodianPosition, "Match Status": p.internalPosition === p.custodianPosition ? "Matched" : "Break", Severity: Math.abs(p.internalPosition - p.custodianPosition) > 1000 ? "High" : "Low", Aging: p.status === "Approved" ? 0 : 2 }))) },
+    { name: "14_Position_Recon", rows: objectRows("14_Position_Recon", store.positionRecon.map((p) => ({ Ticker: p.ticker, Internal: p.internalPosition, Custodian: p.custodianPosition, PB: p.pbPosition, "Custodian Difference": p.internalPosition - p.custodianPosition, "PB Difference": p.internalPosition - p.pbPosition, "Match Status": Math.abs(p.internalPosition - p.custodianPosition) < 1 && Math.abs(p.internalPosition - p.pbPosition) < 1 ? "Matched" : "Break", Severity: Math.max(Math.abs(p.internalPosition - p.custodianPosition), Math.abs(p.internalPosition - p.pbPosition)) > 1000 ? "High" : "Low", Aging: ["Resolved", "Approved"].includes(p.status) ? 0 : 2 }))) },
     { name: "15_Trade_Recon", rows: objectRows("15_Trade_Recon", tradeRows.map((t) => ({ "Trade ID": t["Trade ID"], Security: t.Security, Broker: t.Broker, Status: t.Status, "Match Status": t.Status === "Matched" || t.Status === "Booked" ? "Matched" : "Break", "Settlement Date": t["Settle Date"] }))) },
     { name: "16_FX_Recon", rows: objectRows("16_FX_Recon", store.fxRates.map((fx) => ({ Pair: fx.pair, "Internal Rate": fx.rate, "Vendor Rate": fx.priorRate, Variance: fx.rate - fx.priorRate, Status: Math.abs(fx.rate - fx.priorRate) > 0.01 ? "Review" : "Matched" }))) },
     { name: "17_Fee_Recon", rows: objectRows("17_Fee_Recon", [{ Fee: "Management Fee", System: r.managementFee, Recalculated: r.managementFee, Difference: 0, Status: "Matched" }, { Fee: "Performance Fee", System: r.performanceFee, Recalculated: r.performanceFee, Difference: 0, Status: "Matched" }]) },
@@ -3029,7 +3029,7 @@ function buildInstitutionalNavPack(store: FundState, r: ReturnType<typeof useRec
 }
 
 function buildNavDashboardWorkbook(store: FundState, r: ReturnType<typeof useRecalc>): XlsxSheet[] {
-  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const openBreaks = store.breaks.filter((b) => !["Resolved", "Approved", "Closed"].includes(b.status));
   const criticalBreaks = openBreaks.filter((b) => b.severity === "Critical" || b.severity === "High");
   const pendingApprovals = store.fundSetup.workflowStatus === "NAV Published" ? 0 : 1;
   const priorNav = store.activeScenarioImpact?.before.nav ?? r.netAssets - r.unrealizedGains * 0.05;
@@ -3493,9 +3493,9 @@ function ImpactSummaryPanel() {
   const r = useRecalc();
   const activeScenario = scenarioCatalog.find((scenario) => scenario.id === store.activeScenarioId);
   const navDelta = store.activeScenarioImpact ? impactDelta(store.activeScenarioImpact.before.nav, store.activeScenarioImpact.after.nav) : { delta: 0, pctMove: 0 };
-  const unresolvedImpact = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status)).reduce((sum, b) => sum + Math.abs(b.navImpact), 0);
+  const unresolvedImpact = store.breaks.filter((b) => !["Resolved", "Approved", "Closed"].includes(b.status)).reduce((sum, b) => sum + Math.abs(b.navImpact), 0);
   const mat = materiality(r.netAssets, Math.abs(navDelta.delta) || unresolvedImpact);
-  const blocked = mat.label === "Critical" || store.breaks.some((b) => b.severity === "High" && !["Approved", "Closed"].includes(b.status)) || r.exceptions.some((e) => e.severity === "High" && e.status !== "Cleared");
+  const blocked = mat.label === "Critical" || store.breaks.some((b) => b.severity === "High" && !["Resolved", "Approved", "Closed"].includes(b.status)) || r.exceptions.some((e) => e.severity === "High" && e.status !== "Cleared");
   const controls = activeScenario?.expectedControlBreaks ?? [
     "Price tolerance breach",
     "Cash/position tolerance",
@@ -3627,7 +3627,7 @@ function AICopilotWorkspace() {
   const r = useRecalc();
   const store = useFundStore();
   const { setAiPanelOpen, setTrainingMode, trainingMode, explainContext, setActiveModule } = store;
-  const openBreaks = store.breaks.filter((b) => !["Approved", "Closed"].includes(b.status));
+  const openBreaks = store.breaks.filter((b) => !["Resolved", "Approved", "Closed"].includes(b.status));
   const latestUpload = store.uploads[0];
   const largestHolding = [...r.holdings].sort((a, b) => Math.abs(b.baseMarketValue) - Math.abs(a.baseMarketValue))[0];
   const selectedBreak = openBreaks.sort((a, b) => b.navImpact - a.navImpact)[0];

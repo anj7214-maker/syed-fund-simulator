@@ -1,5 +1,5 @@
 import { baseExceptions } from "../data/sampleData";
-import { Accrual, CapitalActivity, CorporateAction, Derivative, ExceptionItem, FxRate, Holding, Investor, JournalEntry, RecalcResult, Trade } from "../types";
+import { Accrual, CapitalActivity, CashReconRow, CorporateAction, Derivative, ExceptionItem, FxRate, Holding, Investor, JournalEntry, PositionReconRow, RecalcResult, Trade } from "../types";
 
 const round = (value: number, dp = 2) => Number(value.toFixed(dp));
 const signedValue = (h: Holding) => h.quantity * h.marketPrice * h.fxRate;
@@ -122,6 +122,8 @@ export function recalculate(params: {
   accruals: Accrual[];
   derivatives: Derivative[];
   corporateActions?: CorporateAction[];
+  cashRecon?: CashReconRow[];
+  positionRecon?: PositionReconRow[];
   managementFeePct: number;
   performanceFeePct: number;
   manualExceptions?: ExceptionItem[];
@@ -206,7 +208,42 @@ export function recalculate(params: {
   });
   const trialBalance = [...trialMap.values()].map((r) => ({ ...r, debit: round(r.debit), credit: round(r.credit), balance: round(r.debit - r.credit) }));
 
-  const exceptions = [...baseExceptions, ...(params.manualExceptions ?? [])];
+  const exceptions = [
+    ...baseExceptions.filter((item) => {
+      if (params.positionRecon && item.module === "Position Reconciliation") return false;
+      if (params.cashRecon && item.module === "Cash Reconciliation") return false;
+      return true;
+    }),
+    ...(params.manualExceptions ?? []),
+  ];
+  (params.positionRecon ?? []).forEach((row) => {
+    const custodianDifference = row.internalPosition - row.custodianPosition;
+    const pbDifference = row.internalPosition - row.pbPosition;
+    if (Math.abs(custodianDifference) >= 1 || Math.abs(pbDifference) >= 1) {
+      exceptions.push({
+        id: `pos-recon-${row.id}`,
+        severity: Math.max(Math.abs(custodianDifference), Math.abs(pbDifference)) > 1000 ? "High" : "Medium",
+        module: "Position Reconciliation",
+        message: `${row.ticker} position mismatch: custodian difference ${custodianDifference.toLocaleString("en-US")}, PB difference ${pbDifference.toLocaleString("en-US")}`,
+        owner: row.owner,
+        status: row.status === "Resolved" || row.status === "Approved" ? "Cleared" : row.status === "Investigating" ? "Investigating" : "Open",
+      });
+    }
+  });
+  (params.cashRecon ?? []).forEach((row) => {
+    const custodianDifference = row.internalLedgerCash - row.custodianCash;
+    const pbDifference = row.internalLedgerCash - row.primeBrokerCash;
+    if (Math.abs(custodianDifference) >= 1 || Math.abs(pbDifference) >= 1) {
+      exceptions.push({
+        id: `cash-recon-${row.id}`,
+        severity: Math.max(Math.abs(custodianDifference), Math.abs(pbDifference)) > 100000 ? "Medium" : "Low",
+        module: "Cash Reconciliation",
+        message: `${row.currency} cash mismatch: custodian difference ${custodianDifference.toLocaleString("en-US")}, PB difference ${pbDifference.toLocaleString("en-US")}`,
+        owner: row.owner,
+        status: row.status === "Resolved" || row.status === "Approved" ? "Cleared" : row.status === "Investigating" ? "Investigating" : "Open",
+      });
+    }
+  });
   params.holdings.forEach((h) => {
     const minutesOld = (Date.now() - new Date(h.lastPriceTime).getTime()) / 60000;
     if (minutesOld > 90) exceptions.push({ id: `stale-${h.id}`, severity: "Medium", module: "Pricing", message: `${h.ticker} price is stale against valuation cut`, owner: "Valuations", status: "Open" });

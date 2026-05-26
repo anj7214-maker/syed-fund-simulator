@@ -27,6 +27,28 @@ const impacts: Record<string, ModuleId[]> = {
   backendGl: ["workflow", "gl", "trialBalance", "pl", "balanceSheet", "nav", "reconBreaks", "exceptions", "audit", "ops"],
 };
 
+const cashReconStatus = (row: CashReconRow): CashReconRow["status"] => {
+  const matched = Math.abs(row.internalLedgerCash - row.custodianCash) < 1
+    && Math.abs(row.internalLedgerCash - row.primeBrokerCash) < 1;
+  if (matched) return row.status === "Approved" ? "Approved" : "Resolved";
+  return row.status === "Resolved" ? "Investigating" : row.status;
+};
+
+const positionReconStatus = (row: PositionReconRow): Pick<PositionReconRow, "status" | "settlementStatus"> => {
+  const matched = Math.abs(row.internalPosition - row.custodianPosition) < 1
+    && Math.abs(row.internalPosition - row.pbPosition) < 1;
+  if (matched) {
+    return {
+      status: row.status === "Approved" ? "Approved" : "Resolved",
+      settlementStatus: "Settled",
+    };
+  }
+  return {
+    status: row.status === "Resolved" ? "Investigating" : row.status,
+    settlementStatus: row.settlementStatus === "Settled" ? "Pending Settlement" : row.settlementStatus,
+  };
+};
+
 type BackendPostingPayload = {
   posting_id: string;
   approval_id: string;
@@ -248,9 +270,14 @@ export const useFundStore = create<FundState>()(
         const old = s.cashRecon.find((row) => row.id === id)?.[field];
         const numericFields = ["internalLedgerCash", "custodianCash", "primeBrokerCash"] as Array<keyof CashReconRow>;
         const nextValue = numericFields.includes(field) ? Number(value) : value;
+        const cashRecon = s.cashRecon.map((row) => {
+          if (row.id !== id) return row;
+          const updated = { ...row, [field]: nextValue } as CashReconRow;
+          return { ...updated, status: cashReconStatus(updated) };
+        });
         return {
           manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
-          cashRecon: s.cashRecon.map((row) => row.id === id ? { ...row, [field]: nextValue } : row),
+          cashRecon,
           impactedModules: impacts.cashRecon,
           flashed: { [`${id}-${String(field)}`]: Number(nextValue) >= Number(old ?? 0) ? "up" : "down" },
           auditTrail: [audit(`Cash recon ${id}.${String(field)}`, old, nextValue, impacts.cashRecon, "Cash reconciliation amendment"), ...s.auditTrail].slice(0, 100),
@@ -260,9 +287,15 @@ export const useFundStore = create<FundState>()(
         const old = s.positionRecon.find((row) => row.id === id)?.[field];
         const numericFields = ["internalPosition", "custodianPosition", "pbPosition"] as Array<keyof PositionReconRow>;
         const nextValue = numericFields.includes(field) ? Number(value) : value;
+        const positionRecon = s.positionRecon.map((row) => {
+          if (row.id !== id) return row;
+          const updated = { ...row, [field]: nextValue } as PositionReconRow;
+          const statusUpdate = positionReconStatus(updated);
+          return { ...updated, ...statusUpdate };
+        });
         return {
           manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
-          positionRecon: s.positionRecon.map((row) => row.id === id ? { ...row, [field]: nextValue } : row),
+          positionRecon,
           impactedModules: impacts.positionRecon,
           flashed: { [`${id}-${String(field)}`]: Number(nextValue) >= Number(old ?? 0) ? "up" : "down" },
           auditTrail: [audit(`Position recon ${id}.${String(field)}`, old, nextValue, impacts.positionRecon, "Position reconciliation amendment"), ...s.auditTrail].slice(0, 100),

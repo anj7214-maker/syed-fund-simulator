@@ -1196,7 +1196,7 @@ function Header() {
           <button className={trainingMode === "Sandbox" ? "selected" : ""} onClick={() => { setTrainingMode("Sandbox"); setActiveModule("sandboxCommand"); }}>Sandbox</button>
         </div>
         <button className="terminal-button" onClick={() => setAiPanelOpen(true)}><Bot size={15} /> AI Copilot</button>
-        <button className="terminal-button" onClick={reset}><RefreshCw size={15} /> Reset book</button>
+        {trainingMode === "Sandbox" && <button className="terminal-button" onClick={reset}><RefreshCw size={15} /> Reset book</button>}
         <UserButton afterSignOutUrl="/" />
       </div>
     </header>
@@ -2018,12 +2018,25 @@ function CorporateActionsView() {
 
 function CashReconciliationView() {
   const { cashRecon, updateCashRecon } = useFundStore();
-  return <section className="panel full"><PanelTitle title="Cash Reconciliation" right="Internal ledger vs custodian vs prime broker cash" /><ManualSubmitBar label="Cash reconciliation workflow" fields="Internal Ledger Cash, Custodian Cash, Prime Broker Cash, Break Reason, Owner" /><SimpleRows rows={cashRecon.map((r) => ({ Currency: r.currency, "Internal Ledger Cash": <FlashCell id={`${r.id}-internalLedgerCash`}><EditableNumber value={r.internalLedgerCash} onCommit={(v) => updateCashRecon(r.id, "internalLedgerCash", v)} /></FlashCell>, "Custodian Cash": <FlashCell id={`${r.id}-custodianCash`}><EditableNumber value={r.custodianCash} onCommit={(v) => updateCashRecon(r.id, "custodianCash", v)} /></FlashCell>, "Prime Broker Cash": <FlashCell id={`${r.id}-primeBrokerCash`}><EditableNumber value={r.primeBrokerCash} onCommit={(v) => updateCashRecon(r.id, "primeBrokerCash", v)} /></FlashCell>, Difference: fmt(r.internalLedgerCash - r.custodianCash, true), "Break Reason": <EditableText value={r.breakReason} onCommit={(v) => updateCashRecon(r.id, "breakReason", v)} />, Owner: <EditableText value={r.owner} onCommit={(v) => updateCashRecon(r.id, "owner", v)} />, Status: r.status }))} /></section>;
+  return <section className="panel full"><PanelTitle title="Cash Reconciliation" right="Internal ledger vs custodian vs prime broker cash" /><ManualSubmitBar label="Cash reconciliation workflow" fields="Internal Ledger Cash, Custodian Cash, Prime Broker Cash, Break Reason, Owner" /><SimpleRows rows={cashRecon.map((r) => {
+    const custodianDifference = r.internalLedgerCash - r.custodianCash;
+    const primeBrokerDifference = r.internalLedgerCash - r.primeBrokerCash;
+    const matched = Math.abs(custodianDifference) < 1 && Math.abs(primeBrokerDifference) < 1;
+    const status = matched && r.status !== "Approved" ? "Resolved" : r.status;
+    return { Currency: r.currency, "Internal Ledger Cash": <FlashCell id={`${r.id}-internalLedgerCash`}><EditableNumber value={r.internalLedgerCash} onCommit={(v) => updateCashRecon(r.id, "internalLedgerCash", v)} /></FlashCell>, "Custodian Cash": <FlashCell id={`${r.id}-custodianCash`}><EditableNumber value={r.custodianCash} onCommit={(v) => updateCashRecon(r.id, "custodianCash", v)} /></FlashCell>, "Prime Broker Cash": <FlashCell id={`${r.id}-primeBrokerCash`}><EditableNumber value={r.primeBrokerCash} onCommit={(v) => updateCashRecon(r.id, "primeBrokerCash", v)} /></FlashCell>, "Custodian Difference": fmt(custodianDifference, true), "PB Difference": fmt(primeBrokerDifference, true), "Break Reason": <EditableText value={matched ? "Matched" : r.breakReason} onCommit={(v) => updateCashRecon(r.id, "breakReason", v)} />, Owner: <EditableText value={r.owner} onCommit={(v) => updateCashRecon(r.id, "owner", v)} />, Status: status };
+  })} /></section>;
 }
 
 function PositionReconciliationView() {
   const { positionRecon, updatePositionRecon } = useFundStore();
-  return <section className="panel full"><PanelTitle title="Position Reconciliation" right="Internal positions vs custodian and prime broker records" /><ManualSubmitBar label="Position reconciliation workflow" fields="Internal Position, Custodian Position, PB Position, Break Reason, Owner" /><SimpleRows rows={positionRecon.map((r) => ({ Ticker: r.ticker, "Internal Position": <FlashCell id={`${r.id}-internalPosition`}><EditableNumber value={r.internalPosition} onCommit={(v) => updatePositionRecon(r.id, "internalPosition", v)} /></FlashCell>, "Custodian Position": <FlashCell id={`${r.id}-custodianPosition`}><EditableNumber value={r.custodianPosition} onCommit={(v) => updatePositionRecon(r.id, "custodianPosition", v)} /></FlashCell>, "PB Position": <FlashCell id={`${r.id}-pbPosition`}><EditableNumber value={r.pbPosition} onCommit={(v) => updatePositionRecon(r.id, "pbPosition", v)} /></FlashCell>, Difference: num(r.internalPosition - r.custodianPosition), "Settlement Status": r.settlementStatus, "Break Reason": <EditableText value={r.breakReason} onCommit={(v) => updatePositionRecon(r.id, "breakReason", v)} />, Owner: <EditableText value={r.owner} onCommit={(v) => updatePositionRecon(r.id, "owner", v)} />, Status: r.status }))} /></section>;
+  return <section className="panel full"><PanelTitle title="Position Reconciliation" right="Internal positions vs custodian and prime broker records" /><ManualSubmitBar label="Position reconciliation workflow" fields="Internal Position, Custodian Position, PB Position, Break Reason, Owner" /><SimpleRows rows={positionRecon.map((r) => {
+    const custodianDifference = r.internalPosition - r.custodianPosition;
+    const primeBrokerDifference = r.internalPosition - r.pbPosition;
+    const matched = Math.abs(custodianDifference) < 1 && Math.abs(primeBrokerDifference) < 1;
+    const status = matched && r.status !== "Approved" ? "Resolved" : r.status;
+    const settlementStatus = matched ? "Settled" : r.settlementStatus;
+    return { Ticker: r.ticker, "Internal Position": <FlashCell id={`${r.id}-internalPosition`}><EditableNumber value={r.internalPosition} onCommit={(v) => updatePositionRecon(r.id, "internalPosition", v)} /></FlashCell>, "Custodian Position": <FlashCell id={`${r.id}-custodianPosition`}><EditableNumber value={r.custodianPosition} onCommit={(v) => updatePositionRecon(r.id, "custodianPosition", v)} /></FlashCell>, "PB Position": <FlashCell id={`${r.id}-pbPosition`}><EditableNumber value={r.pbPosition} onCommit={(v) => updatePositionRecon(r.id, "pbPosition", v)} /></FlashCell>, "Custodian Difference": num(custodianDifference), "PB Difference": num(primeBrokerDifference), "Settlement Status": settlementStatus, "Break Reason": <EditableText value={matched ? "Matched" : r.breakReason} onCommit={(v) => updatePositionRecon(r.id, "breakReason", v)} />, Owner: <EditableText value={r.owner} onCommit={(v) => updatePositionRecon(r.id, "owner", v)} />, Status: status };
+  })} /></section>;
 }
 
 function BreaksDashboard() {

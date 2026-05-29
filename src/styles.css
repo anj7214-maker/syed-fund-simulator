@@ -49,6 +49,10 @@ h1 { margin: 2px 0 0; font-size: 20px; letter-spacing: 0; }
 .terminal-button:hover, .icon-btn:hover, .scenario-button:hover { border-color: #47d5e7; color: #fff; background: #162a31; }
 .terminal-button.selected { border-color: rgba(38,208,124,.65); color: #26d07c; background: rgba(38,208,124,.1); }
 .terminal-button.reject { border-color: rgba(255,90,106,.35); color: #ff9aa3; }
+.segmented-control { display: inline-flex; border: 1px solid #263940; background: #0a1519; margin-bottom: 10px; }
+.segmented-control button { border: 0; border-right: 1px solid #263940; background: transparent; color: #9fb3bd; padding: 8px 14px; cursor: pointer; }
+.segmented-control button:last-child { border-right: 0; }
+.segmented-control button.selected { color: #26d07c; background: rgba(38,208,124,.1); }
 .icon-btn { width: 32px; justify-content: center; padding: 0; }
 .status-pill { min-height: 30px; padding: 6px 10px; border: 1px solid #263940; background: #0e191e; color: #9fb3bd; font-size: 12px; }
 .status-pill.good { color: #26d07c; border-color: rgba(38,208,124,.42); }

@@ -105,6 +105,50 @@ export const sampleCorporateActions: CorporateAction[] = [
   { id: "ca4", eventType: "Rights Issue", security: "VOD LN", exDate: "2026-05-20", recordDate: "2026-05-21", payDate: "2026-06-28", eligibleQuantity: 760000, grossAmount: 46444, withholdingTax: 4644, netReceivable: 41800, status: "Validated", postingStatus: "Accrued" },
 ];
 
+const domesticCorporateActionsCsv = `Security Code,Security Name,Company Name,Ex Date,Purpose,Record Date,BC Start Date,BC End Date,ND Start Date,ND End Date,Actual Payment Date
+526445,INDRANIB,Indrayani Biotech Ltd,28 Apr 2026,Right Issue of Equity Shares,28 Apr 2026,-,-,28 Apr 2026,28 Apr 2026,-
+533315,INOVSYNTH,Innovassynth Technologies (India) Ltd,29 Apr 2026,Right Issue of Equity Shares,29 Apr 2026,-,-,28 Apr 2026,29 Apr 2026,-
+526841,SHAKTIPR,Shakti Press Ltd,29 Apr 2026,Right Issue of Equity Shares,29 Apr 2026,-,-,28 Apr 2026,29 Apr 2026,-
+500002,ABB,ABB India Ltd,30 Apr 2026,Final Dividend - Rs. - 29.5900,02 May 2026,-,-,28 Apr 2026,30 Apr 2026,-
+542602,EMBASSY,Embassy Office Parks REIT,30 Apr 2026,Income Distribution RITES,30 Apr 2026,-,-,28 Apr 2026,30 Apr 2026,-
+500188,HINDZINC,Hindustan Zinc Ltd,30 Apr 2026,Interim Dividend - Rs. - 11.0000,30 Apr 2026,-,-,28 Apr 2026,30 Apr 2026,-
+541300,INTERISE,INTERISE TRUST,30 Apr 2026,Income Distribution (InvIT),01 May 2026,-,-,28 Apr 2026,30 Apr 2026,-
+532435,SANINFRA,Sanmit Infra Ltd,30 Apr 2026,Consolidation of Shares,30 Apr 2026,-,-,28 Apr 2026,30 Apr 2026,-
+504959,STOVACQ,Stovec Industries Ltd,30 Apr 2026,Dividend - Rs. - 12.0000,30 Apr 2026,-,-,28 Apr 2026,30 Apr 2026,-
+532790,TANLA,Tanla Platforms Ltd,30 Apr 2026,Interim Dividend - Rs. - 6.0000,30 Apr 2026,-,-,28 Apr 2026,30 Apr 2026,-
+539040,TIRUPATIIN,Tirupati Innovar Ltd,30 Apr 2026,Right Issue of Equity Shares,30 Apr 2026,-,-,28 Apr 2026,30 Apr 2026,-
+540180,VBL,Varun Beverages Ltd,30 Apr 2026,Interim Dividend - Rs. - 0.5000,01 May 2026,-,-,28 Apr 2026,30 Apr 2026,-
+500295,VEDL,Vedanta Ltd,30 Apr 2026,Spin Off,01 May 2026,-,-,28 Apr 2026,30 Apr 2026,-
+520113,VESUVIUS,Vesuvius India Ltd,30 Apr 2026,Final Dividend - Rs. - 1.5000,30 Apr 2026,-,-,28 Apr 2026,30 Apr 2026,-
+507789,JAGSNPHARM,Jagsonpal Pharmaceuticals Ltd,04 May 2026,Buy Back of Shares,04 May 2026,-,-,28 Apr 2026,04 May 2026,-
+543512,AVROIND,Avro India Ltd,05 May 2026,Stock Split From Rs.10/- to Rs.1/-,05 May 2026,-,-,28 Apr 2026,05 May 2026,-
+500123,ELANTAS,Elantas Beck India Ltd-$,05 May 2026,Dividend - Rs. - 7.5000,05 May 2026,-,-,28 Apr 2026,05 May 2026,-
+544137,INDUSINVIT,Indus Infra Trust,05 May 2026,Income Distribution (InvIT),05 May 2026,-,-,28 Apr 2026,05 May 2026,-
+543217,MINDSPACE,Mindspace Business Parks REIT,05 May 2026,Income Distribution RITES,05 May 2026,-,-,28 Apr 2026,05 May 2026,-
+532466,OFSS,Oracle Financial Services Software Ltd,07 May 2026,Interim Dividend - Rs. - 270.0000,07 May 2026,-,-,-,-,-
+530889,ALKA,Alka India Ltd,08 May 2026,Bonus issue 6:1,08 May 2026,-,-,-,-,-
+500249,KSB,KSB Ltd,08 May 2026,Final Dividend - Rs. - 4.4000,08 May 2026,-,-,-,-,-
+532527,RKFORGE,Ramkrishna Forgings Ltd,08 May 2026,Interim Dividend,08 May 2026,-,-,-,-,-
+517230,PAEL,PAE Ltd,11 May 2026,Final Dividend - Rs. - 0.2000,11 May 2026,-,-,-,-,-
+532424,GODREJCP,Godrej Consumer Products Ltd,12 May 2026,Interim Dividend,12 May 2026,-,-,-,-,-
+543415,ANANDRATHI,Anand Rathi Wealth Ltd,15 May 2026,Final Dividend - Rs. - 7.0000,15 May 2026,-,-,-,-,-
+543335,APTUS,Aptus Value Housing Finance India Ltd,15 May 2026,Interim Dividend,15 May 2026,-,-,-,-,-
+531752,BIOGEN,Biogen Pharmachem Industries Ltd,15 May 2026,Bonus issue 1:6,15 May 2026,-,-,-,-,-
+544140,GOPAL,Gopal Snacks Ltd,15 May 2026,Interim Dividend,16 May 2026,-,-,-,-,-
+540750,IEX,Indian Energy Exchange Ltd,15 May 2026,Final Dividend - Rs. - 2.0000,15 May 2026,-,-,-,-,-
+538713,ATISHAY,Atishay Ltd,19 May 2026,Final Dividend - Rs. - 1.0000,19 May 2026,-,-,-,-,-
+540115,LTTS,L&T Technology Services Ltd,22 May 2026,Final Dividend - Rs. - 40.0000,22 May 2026,-,-,-,-,-
+532827,PAGEIND,Page Industries Ltd,27 May 2026,Interim Dividend,27 May 2026,-,-,-,-,-`;
+
+const parseDomesticCorporateActions = (csv: string) => {
+  const [headerLine, ...lines] = csv.trim().split(/\r?\n/);
+  const headers = headerLine.split(",").map((header) => header.trim());
+  return lines.map((line) => Object.fromEntries(line.split(",").map((value, index) => [headers[index], value.trim()])));
+};
+
+export const domesticCorporateActionHeaders = ["Security Code", "Security Name", "Company Name", "Ex Date", "Purpose", "Record Date", "BC Start Date", "BC End Date", "ND Start Date", "ND End Date", "Actual Payment Date"];
+export const sampleDomesticCorporateActions = parseDomesticCorporateActions(domesticCorporateActionsCsv);
+
 export const sampleCashRecon: CashReconRow[] = [
   { id: "cash1", currency: "USD", internalLedgerCash: 18420000, custodianCash: 18420000, primeBrokerCash: 18418000, breakReason: "PB fee sweep posted after cutoff", owner: "Treasury", status: "Investigating" },
   { id: "cash2", currency: "EUR", internalLedgerCash: 6125000, custodianCash: 6025000, primeBrokerCash: 6125000, breakReason: "DB settlement timing difference", owner: "Ops L2", status: "Open" },

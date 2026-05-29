@@ -11,6 +11,7 @@ import type { FundState } from "./store/fundStore";
 import { scenarioCatalog, scenariosForModule } from "./engine/scenarioEngine";
 import { CopilotContext, ModuleId, ScenarioDefinition, UploadModule } from "./types";
 import { institutionalApi } from "./services/institutionalApi";
+import { domesticCorporateActionHeaders, sampleDomesticCorporateActions } from "./data/sampleData";
 
 const modules: Array<{ id: ModuleId; label: string; icon: typeof Activity }> = [
   { id: "dashboard", label: "Executive Dashboard", icon: Gauge },
@@ -2043,11 +2044,17 @@ function SecurityMasterView() {
 
 function CorporateActionsView() {
   const { corporateActions, updateCorporateAction } = useFundStore();
+  const [marketView, setMarketView] = useState<"Global" | "Domestic">("Global");
+  const domesticRows = useMemo(() => sampleDomesticCorporateActions.map((row) => Object.fromEntries(domesticCorporateActionHeaders.map((header) => [header, row[header] ?? "-"]))), []);
   return (
     <section className="panel full">
       <PanelTitle title="Corporate Actions Processing" right="Accrual, receivable/payable, GL and cash-settlement workflow" />
-      <ManualSubmitBar label="Corporate action workflow" fields="Ex-Date, Record Date, Pay Date, Eligible Quantity, Gross Amount, Withholding Tax, Net Receivable, Status, Posting Status" />
-      <SimpleRows rows={corporateActions.map((c) => ({
+      <div className="segmented-control">
+        {(["Global", "Domestic"] as const).map((view) => <button key={view} className={marketView === view ? "selected" : ""} onClick={() => setMarketView(view)}>{view}</button>)}
+      </div>
+      {marketView === "Global" && <ManualSubmitBar label="Corporate action workflow" fields="Ex-Date, Record Date, Pay Date, Eligible Quantity, Gross Amount, Withholding Tax, Net Receivable, Status, Posting Status" />}
+      {marketView === "Domestic" && <div className="balance-banner warn">Domestic corporate actions are sample/test-only and are not linked to NAV, GL, accruals, cash, or downstream tabs.</div>}
+      {marketView === "Domestic" ? <SimpleRows rows={domesticRows} /> : <SimpleRows rows={corporateActions.map((c) => ({
         "Event Type": c.eventType,
         Security: c.security,
         "Ex-Date": <EditableText value={c.exDate} onCommit={(v) => updateCorporateAction(c.id, "exDate", v)} />,
@@ -2060,7 +2067,7 @@ function CorporateActionsView() {
         Status: <select className="terminal-select" value={c.status} onChange={(e) => updateCorporateAction(c.id, "status", e.target.value)}><option>Announced</option><option>Validated</option><option>Booked</option><option>Settled</option></select>,
         "Posting Status": <select className="terminal-select" value={c.postingStatus} onChange={(e) => updateCorporateAction(c.id, "postingStatus", e.target.value)}><option>Pending</option><option>Accrued</option><option>Posted</option><option>Cash Settled</option></select>,
         "NAV Impact": fmt(c.netReceivable, true),
-      }))} />
+      }))} />}
     </section>
   );
 }

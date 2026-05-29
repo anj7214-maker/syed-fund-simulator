@@ -251,6 +251,18 @@ export function recalculate(params: {
   const debitTotal = trialBalance.reduce((sum, r) => sum + r.debit, 0);
   const creditTotal = trialBalance.reduce((sum, r) => sum + r.credit, 0);
   if (Math.abs(debitTotal - creditTotal) > 1) exceptions.push({ id: "gl-oob", severity: "High", module: "General Ledger", message: "Debit and credit totals are out of balance", owner: "Fund Accounting", status: "Open" });
+  const capitalNavDifference = investorCapital - netAssets;
+  const capitalNavVariancePct = Math.abs(capitalNavDifference) / Math.max(Math.abs(netAssets), 1);
+  if (capitalNavVariancePct > 0.005) {
+    exceptions.push({
+      id: "capital-nav-tieout",
+      severity: capitalNavVariancePct > 0.02 ? "High" : "Medium",
+      module: "Investor Capital",
+      message: `Investor capital differs from NAV by ${round(capitalNavDifference).toLocaleString("en-US")}`,
+      owner: "NAV Control",
+      status: "Open",
+    });
+  }
 
   return {
     holdings,

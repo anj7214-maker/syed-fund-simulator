@@ -1715,6 +1715,18 @@ function Statements({ kind }: { kind: "pl" | "balance" | "nav" }) {
         <Metric label="Shares outstanding" value={num(r.sharesOutstanding)} />
         <Metric label="NAV/share" value={r.navPerShare.toFixed(4)} tone="good" />
       </div>
+      {(() => {
+        const tieOutDifference = r.investorCapital - r.netAssets;
+        const tieOutPct = Math.abs(tieOutDifference) / Math.max(Math.abs(r.netAssets), 1);
+        const clean = tieOutPct <= 0.005;
+        return (
+          <div className={`balance-banner ${clean ? "good" : "bad"}`}>
+            Capital to NAV Tie-Out: Investor Capital {fmt(r.investorCapital, true)} vs NAV {fmt(r.netAssets, true)}
+            {" "}· Difference {fmt(tieOutDifference, true)} / {(tieOutPct * 100).toFixed(2)}%
+            {" "}· {clean ? "TIED" : "REVIEW REQUIRED"}
+          </div>
+        );
+      })()}
       <NavPackInputCenter />
       <SimpleRows rows={[
         { Item: "High water mark base", Value: fmt(store.investors.reduce((s, i) => s + i.hwm * i.shares, 0), true) },
@@ -1889,9 +1901,37 @@ function DerivativesView() {
 }
 
 function AccrualsView({ kind }: { kind: "Dividend" | "Coupon" }) {
-  const accruals = useFundStore((s) => s.accruals);
+  const { accruals, updateAccrual } = useFundStore();
   const rows = useMemo(() => accruals.filter((a) => a.kind === kind), [accruals, kind]);
-  return <section className="panel full"><PanelTitle title={`${kind} Accruals`} right="Accrual journals are auto-generated" /><SimpleRows rows={rows.map((a) => kind === "Dividend" ? { Ticker: a.ticker, "Ex-date": a.exDate, "Pay-date": a.payDate, "Shares eligible": num(a.sharesEligible ?? 0), "Withholding tax": pct(a.withholdingTax ?? 0), "Net dividend": fmt(a.netDividend ?? 0) } : { Ticker: a.ticker, "Coupon %": `${a.couponPct}%`, "Accrual days": a.accrualDays, "Accrued interest": fmt(a.accruedInterest ?? 0), "Clean price": a.cleanPrice, "Dirty price": a.dirtyPrice })} /></section>;
+  return (
+    <section className="panel full">
+      <PanelTitle title={`${kind} Accruals`} right="Editable accrual journals feed GL, P&L and NAV" />
+      <div className="table-wrap"><table className="data-grid">
+        <thead><tr>{kind === "Dividend"
+          ? ["Ticker", "Ex-date", "Pay-date", "Shares eligible", "Withholding tax", "Net dividend"].map((h) => <th key={h}>{h}</th>)
+          : ["Ticker", "Coupon %", "Accrual days", "Accrued interest", "Clean price", "Dirty price"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+        <tbody>{rows.map((a) => kind === "Dividend" ? (
+          <tr key={a.id}>
+            <td>{a.ticker}</td>
+            <td><EditableText value={a.exDate ?? ""} onCommit={(v) => updateAccrual(a.id, "exDate", v)} /></td>
+            <td><EditableText value={a.payDate ?? ""} onCommit={(v) => updateAccrual(a.id, "payDate", v)} /></td>
+            <td><FlashCell id={`${a.id}-sharesEligible`}><EditableNumber value={a.sharesEligible ?? 0} onCommit={(v) => updateAccrual(a.id, "sharesEligible", v)} /></FlashCell></td>
+            <td><FlashCell id={`${a.id}-withholdingTax`}><EditableNumber value={a.withholdingTax ?? 0} onCommit={(v) => updateAccrual(a.id, "withholdingTax", v)} /></FlashCell></td>
+            <td><FlashCell id={`${a.id}-netDividend`}><EditableNumber value={a.netDividend ?? 0} onCommit={(v) => updateAccrual(a.id, "netDividend", v)} /></FlashCell></td>
+          </tr>
+        ) : (
+          <tr key={a.id}>
+            <td>{a.ticker}</td>
+            <td><FlashCell id={`${a.id}-couponPct`}><EditableNumber value={a.couponPct ?? 0} onCommit={(v) => updateAccrual(a.id, "couponPct", v)} /></FlashCell></td>
+            <td><FlashCell id={`${a.id}-accrualDays`}><EditableNumber value={a.accrualDays ?? 0} onCommit={(v) => updateAccrual(a.id, "accrualDays", v)} /></FlashCell></td>
+            <td><FlashCell id={`${a.id}-accruedInterest`}><EditableNumber value={a.accruedInterest ?? 0} onCommit={(v) => updateAccrual(a.id, "accruedInterest", v)} /></FlashCell></td>
+            <td><FlashCell id={`${a.id}-cleanPrice`}><EditableNumber value={a.cleanPrice ?? 0} onCommit={(v) => updateAccrual(a.id, "cleanPrice", v)} /></FlashCell></td>
+            <td><FlashCell id={`${a.id}-dirtyPrice`}><EditableNumber value={a.dirtyPrice ?? 0} onCommit={(v) => updateAccrual(a.id, "dirtyPrice", v)} /></FlashCell></td>
+          </tr>
+        ))}</tbody>
+      </table></div>
+    </section>
+  );
 }
 
 function ExceptionPanel() {
@@ -3743,8 +3783,8 @@ function ModuleContent() {
         {active === "waterfall" && <><ManualSubmitBar label="Investment exit waterfall workflow" fields="Exit Proceeds, Capital Contributions, Preferred Return, GP Catch-Up, Carry Split" /><InvestmentExitWaterfallView /></>}
         {active === "expenses" && <><ManualSubmitBar label="Fee amendment workflow" fields="Management Fee %, Performance Fee %" /><InvestorView fees /></>}
         {(active === "otc" || active === "mtm") && <><ManualSubmitBar label="Derivative MTM workflow" fields="MTM, Accrued Interest, Collateral" /><DerivativesView /></>}
-        {active === "dividends" && <AccrualsView kind="Dividend" />}
-        {active === "coupons" && <AccrualsView kind="Coupon" />}
+        {active === "dividends" && <><ManualSubmitBar label="Dividend accrual workflow" fields="Ex-date, Pay-date, Shares Eligible, Withholding Tax, Net Dividend" /><AccrualsView kind="Dividend" /></>}
+        {active === "coupons" && <><ManualSubmitBar label="Coupon accrual workflow" fields="Coupon %, Accrual Days, Accrued Interest, Clean Price, Dirty Price" /><AccrualsView kind="Coupon" /></>}
         {active === "corporateActions" && <><FileUploadPanel module="corporateActions" title="Corporate Action File Upload" /><CorporateActionsView /></>}
         {active === "audit" && <AuditTrail />}
         {active === "exceptions" && <BreaksDashboard />}

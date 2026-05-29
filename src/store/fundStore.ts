@@ -4,7 +4,7 @@ import { get, set } from "idb-keyval";
 import { sampleAccruals, sampleActivities, sampleBreaks, sampleCashRecon, sampleCorporateActions, sampleDerivatives, sampleFundSetup, sampleFx, sampleHoldings, sampleInvestors, samplePositionRecon, sampleSecurityMaster, sampleTrades, sampleUploads } from "../data/sampleData";
 import { recalculate } from "../engine/recalc";
 import { applyScenarioEffect, createImpactSnapshot, scenarioCatalog } from "../engine/scenarioEngine";
-import { AuditEvent, BreakItem, CapitalActivity, CashReconRow, CopilotContext, CorporateAction, Derivative, FundSetup, FxRate, Holding, ImpactSnapshot, Investor, JournalEntry, JournalLine, ModuleId, PositionReconRow, SandboxRole, SandboxTrack, ScenarioRun, SecurityMaster, Trade, TrainingMode, UploadBatch, UploadModule, ValidationIssue } from "../types";
+import { Accrual, AuditEvent, BreakItem, CapitalActivity, CashReconRow, CopilotContext, CorporateAction, Derivative, FundSetup, FxRate, Holding, ImpactSnapshot, Investor, JournalEntry, JournalLine, ModuleId, PositionReconRow, SandboxRole, SandboxTrack, ScenarioRun, SecurityMaster, Trade, TrainingMode, UploadBatch, UploadModule, ValidationIssue } from "../types";
 
 const idbStorage = {
   getItem: async (name: string) => (await get(name)) ?? null,
@@ -18,6 +18,7 @@ const impacts: Record<string, ModuleId[]> = {
   trade: ["trades", "holdings", "gl", "trialBalance", "cashRecon", "positionRecon", "nav", "audit"],
   investor: ["capital", "subsReds", "nav", "mgmtFees", "perfFees", "equalization", "waterfall", "investorReporting", "audit"],
   derivative: ["otc", "mtm", "gl", "trialBalance", "pl", "balanceSheet", "nav", "risk", "audit"],
+  accrual: ["dividends", "coupons", "corporateActions", "gl", "trialBalance", "pl", "balanceSheet", "nav", "cashRecon", "audit", "ops"],
   fee: ["mgmtFees", "perfFees", "gl", "trialBalance", "pl", "balanceSheet", "nav", "investorReporting", "audit"],
   fund: ["fund", "mgmtFees", "perfFees", "nav", "workflow", "audit"],
   break: ["reconBreaks", "exceptions", "workflow", "ops", "audit"],
@@ -255,6 +256,7 @@ export interface FundState {
   updateTrade: (id: string, field: keyof Trade, value: string | number) => void;
   updateInvestor: (id: string, field: keyof Investor, value: number) => void;
   updateDerivative: (id: string, field: keyof Derivative, value: number) => void;
+  updateAccrual: (id: string, field: keyof Accrual, value: string | number) => void;
   updateCashRecon: (id: string, field: keyof CashReconRow, value: string | number) => void;
   updatePositionRecon: (id: string, field: keyof PositionReconRow, value: string | number) => void;
   updateCorporateAction: (id: string, field: keyof CorporateAction, value: string | number) => void;
@@ -417,6 +419,31 @@ export const useFundStore = create<FundState>()(
           auditTrail: [audit(`Derivative ${id}.${String(field)}`, old, value, impacts.derivative, "MTM override"), ...s.auditTrail].slice(0, 100),
         };
       }),
+      updateAccrual: (id, field, value) => set((s) => {
+        const old = s.accruals.find((a) => a.id === id)?.[field];
+        const numericFields = ["sharesEligible", "withholdingTax", "netDividend", "couponPct", "accrualDays", "accruedInterest", "cleanPrice", "dirtyPrice"] as Array<keyof Accrual>;
+        const nextValue = numericFields.includes(field) ? Number(value) : value;
+        const accruals = s.accruals.map((a) => a.id === id ? { ...a, [field]: nextValue } : a);
+        const before = s.manualBaseline ?? createImpactSnapshot(s);
+        const after = createImpactSnapshot({ ...s, accruals });
+        return {
+          manualBaseline: before,
+          activeScenarioImpact: { before, after },
+          accruals,
+          impactedModules: impacts.accrual,
+          flashed: { [`${id}-${String(field)}`]: Number(nextValue) >= Number(old ?? 0) ? "up" : "down" },
+          auditTrail: [audit(`Accrual ${id}.${String(field)}`, old, nextValue, impacts.accrual, "Income accrual amendment"), ...s.auditTrail].slice(0, 100),
+          copilotContext: {
+            tab: field === "accruedInterest" || field === "couponPct" ? "coupons" : "dividends",
+            title: `Accrual ${id} updated`,
+            summary: "Income accrual values were amended and the NAV engine recalculated receivables, income, GL, trial balance, P&L, balance sheet and NAV.",
+            accountingImpact: `P&L moved from ${before.pnl.toLocaleString("en-US", { maximumFractionDigits: 2 })} to ${after.pnl.toLocaleString("en-US", { maximumFractionDigits: 2 })}.`,
+            navImpact: `NAV moved from ${before.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })} to ${after.nav.toLocaleString("en-US", { maximumFractionDigits: 2 })}.`,
+            recommendedAction: "Review income support, tax withholding, receivable posting and approval evidence before NAV release.",
+            relatedEntries: ["Dividend Accruals", "Coupon Accruals", "General Ledger", "P&L Statement", "NAV Package"],
+          },
+        };
+      }),
       updateCashRecon: (id, field, value) => set((s) => {
         const old = s.cashRecon.find((row) => row.id === id)?.[field];
         const numericFields = ["internalLedgerCash", "custodianCash", "primeBrokerCash"] as Array<keyof CashReconRow>;
@@ -534,12 +561,26 @@ export const useFundStore = create<FundState>()(
       }),
       updateBreak: (id, field, value) => set((s) => {
         const old = s.breaks.find((b) => b.id === id)?.[field];
+        const numericValue = field === "aging" || field === "navImpact" || field === "slaHours" ? Number(value) : value;
         return {
           manualBaseline: s.manualBaseline ?? createImpactSnapshot(s),
-          breaks: s.breaks.map((b) => b.id === id ? { ...b, [field]: field === "aging" || field === "navImpact" || field === "slaHours" ? Number(value) : value } : b),
+          breaks: s.breaks.map((b) => {
+            if (b.id !== id) return b;
+            const updated = { ...b, [field]: numericValue };
+            if (field === "navImpact" && Number(numericValue) === 0 && !["Approved", "Closed"].includes(updated.status)) {
+              return {
+                ...updated,
+                status: "Resolved" as const,
+                severity: "Low" as const,
+                resolutionNotes: updated.resolutionNotes || "Auto-resolved because NAV impact is now zero.",
+                comments: ["Auto-resolved from zero NAV impact", ...updated.comments].slice(0, 5),
+              };
+            }
+            return updated;
+          }),
           impactedModules: impacts.break,
           flashed: { [`${id}-${String(field)}`]: "up" },
-          auditTrail: [audit(`Break ${id}.${String(field)}`, old, value, impacts.break, "Break workflow update"), ...s.auditTrail].slice(0, 100),
+          auditTrail: [audit(`Break ${id}.${String(field)}`, old, numericValue, impacts.break, "Break workflow update"), ...s.auditTrail].slice(0, 100),
         };
       }),
       updateWorkflow: (status) => set((s) => ({

@@ -63,3 +63,15 @@ VITE_APPROVED_EMAILS
 ```
 
 See `PROJECT_NOTES.md` for deployment, GitHub, and access-control notes.
+
+## Corporate Code Sharing
+
+For corporate or technical review, share this repository with **read-only GitHub access** only.
+
+Do not share `.env`, `.env.local`, Vercel admin access, Clerk admin access, tokens, passwords, or private credentials.
+
+See:
+
+- `CODE_SHARING_GUIDE.md`
+- `CONFIDENTIALITY_NOTICE.md`
+- `SECURITY_SHARING_CHECKLIST.md`

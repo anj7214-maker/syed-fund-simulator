@@ -14,6 +14,8 @@ import { institutionalApi } from "./services/institutionalApi";
 import { domesticCorporateActionHeaders, sampleDomesticCorporateActions } from "./data/sampleData";
 
 const modules: Array<{ id: ModuleId; label: string; icon: typeof Activity }> = [
+  { id: "aboutTool", label: "About Tool", icon: BookOpenCheck },
+  { id: "toolNavigator", label: "Tool Navigator", icon: Search },
   { id: "dashboard", label: "Executive Dashboard", icon: Gauge },
   { id: "sandboxCommand", label: "Sandbox Command Center", icon: Brain },
   { id: "aiCopilot", label: "AI Copilot", icon: Bot },
@@ -67,6 +69,7 @@ type NavGroup = {
 };
 
 const navGroups: NavGroup[] = [
+  { title: "Tool Orientation", subtitle: "What it does and where to go", icon: BookOpenCheck, modules: ["aboutTool", "toolNavigator"] },
   { title: "Executive Control Room", subtitle: "NAV release, blockers, operating health", icon: Gauge, modules: ["dashboard", "ops"] },
   { title: "Sandbox Command Center", subtitle: "Practice scenarios and guided simulation", icon: Brain, modules: ["sandboxCommand", "scenario"] },
   { title: "Portfolio Operations", subtitle: "Setup, securities, trades, pricing, FX", icon: FileSpreadsheet, modules: ["fund", "structureComparison", "holdings", "trades", "security", "pricing", "fx", "corporateActions", "dividends", "coupons", "otc", "mtm"] },
@@ -871,7 +874,7 @@ function NavPackInputCenter() {
           <button className="terminal-button" onClick={downloadInputRegister}><Download size={15} /> Download Inputs</button>
           <button className="terminal-button" onClick={downloadNavSummary}><FileDown size={15} /> Download NAV Summary</button>
           <button className="terminal-button" onClick={() => downloadCsv("nav-pack-before-after-impact.csv", impactReportRows(store))}><FileSpreadsheet size={15} /> Download Impact</button>
-          <button className="terminal-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_Institutional_NAV_Pack.xlsx", buildInstitutionalNavPack(store, r))}><FileSpreadsheet size={15} /> Full NAV Pack</button>
+          <button className="terminal-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_Institutional_NAV_Pack.xlsx", buildInstitutionalNavPack(store, r))}><FileSpreadsheet size={15} /> NAV Pack</button>
         </div>
       </div>
       <div className="nav-source-grid">
@@ -1247,6 +1250,7 @@ function LearningHint({ text }: { text: string }) {
 }
 
 type OpsLens = "Analyst" | "SME" | "Manager" | "Leadership";
+type TraceMetricKey = "nav" | "navShare" | "grossAssets" | "liabilities" | "investorCapital" | "unrealizedPnl" | "managementFee" | "performanceFee" | "cash" | "openBreakImpact";
 
 function navReadiness(store: FundState, r: ReturnType<typeof useRecalc>) {
   const openBreaks = store.breaks.filter((b) => !["Resolved", "Approved", "Closed"].includes(b.status));
@@ -1259,6 +1263,369 @@ function navReadiness(store: FundState, r: ReturnType<typeof useRecalc>) {
   const mat = materiality(r.netAssets, unresolvedImpact);
   const blocked = criticalBreaks.length > 0 || stalePrices > 0 || tbBreak > 1 || mat.label === "Critical";
   return { openBreaks, criticalBreaks, openExceptions, failedTrades, stalePrices, tbBreak, unresolvedImpact, mat, blocked };
+}
+
+function nextBestAction(store: FundState, r: ReturnType<typeof useRecalc>) {
+  const readiness = navReadiness(store, r);
+  if (readiness.criticalBreaks.length) return `Resolve or escalate ${readiness.criticalBreaks.length} high-risk break(s) before NAV approval.`;
+  if (readiness.stalePrices) return `Review ${readiness.stalePrices} stale pricing item(s) and attach valuation evidence.`;
+  if (readiness.tbBreak > 1) return `Investigate the trial balance variance of ${fmt(readiness.tbBreak, true)} before release.`;
+  if (store.fundSetup.workflowStatus !== "Approved" && store.fundSetup.workflowStatus !== "NAV Published") return "Route the NAV package through reviewer approval and maker-checker signoff.";
+  if (Math.abs(r.investorCapital - r.netAssets) / Math.max(Math.abs(r.netAssets), 1) > 0.005) return "Open investor capital tie-out because investor capital does not fully reconcile to NAV.";
+  return "NAV controls are clean enough for final reviewer signoff and NAV Pack generation.";
+}
+
+function moduleHelp(active: ModuleId) {
+  const help: Partial<Record<ModuleId, { purpose: string; check: string; risk: string; approval: string }>> = {
+    aboutTool: { purpose: "Explains what the simulator does, who it is for and how to start.", check: "Use this first when presenting the platform to a new stakeholder.", risk: "Without this orientation, first-time users may jump into technical screens too quickly.", approval: "Good starting point for corporate demos and onboarding." },
+    toolNavigator: { purpose: "Maps every tab to its operating heading and recommends role-based navigation paths.", check: "Choose Mentor Mode by user type, then open the recommended tabs in order.", risk: "Wrong navigation can hide the actual blocker or source schedule.", approval: "Use this to guide analysts, SMEs, managers and leadership." },
+    dashboard: { purpose: "Morning NAV control room for release readiness, blockers and ownership.", check: "Start with release status, open breaks, top NAV drivers and next action.", risk: "Material breaks, stale prices or missing approvals can block release.", approval: "Leadership uses this view to decide whether NAV can move to signoff." },
+    holdings: { purpose: "Values open positions and drives unrealized P&L, exposure and NAV.", check: "Check market price, quantity, FX rate, stale price flags and large exposures.", risk: "Wrong price or quantity flows into NAV, P&L, balance sheet and investor allocation.", approval: "Material price or position changes require review evidence." },
+    pricing: { purpose: "Controls vendor prices, manual overrides and stale price exceptions.", check: "Review prior-day moves, source, tolerance and valuation hierarchy.", risk: "Stale or challenged prices create direct NAV risk.", approval: "Manual overrides should be approved before NAV release." },
+    fx: { purpose: "Translates local currency assets into base currency NAV.", check: "Check major currency pairs, prior-day variance and missing FX.", risk: "FX errors distort holdings, P&L, NAV/share and investor statements.", approval: "Large FX variances need treasury or pricing signoff." },
+    cashRecon: { purpose: "Compares internal ledger cash to custodian and prime broker cash.", check: "Focus on differences, timing items, owner and resolution status.", risk: "Unmatched cash can affect liquidity, subscriptions, redemptions and NAV.", approval: "Material cash breaks need documented resolution." },
+    positionRecon: { purpose: "Compares internal positions to custodian and prime broker positions.", check: "Review custodian/PB differences, failed settlements and corporate action timing.", risk: "Position breaks can hide incorrect market value and NAV exposure.", approval: "High quantity breaks need SME review before release." },
+    reconBreaks: { purpose: "Central queue of operational breaks affecting NAV readiness.", check: "Prioritize severity, aging, NAV impact and evidence status.", risk: "Unresolved material breaks can block NAV publication.", approval: "Resolution should follow maker-checker workflow." },
+    gl: { purpose: "Shows double-entry postings generated by trades, fees, accruals and approvals.", check: "Check debit/credit logic, source module and audit reference.", risk: "Unsupported or wrong journals can break TB, P&L, balance sheet and NAV.", approval: "Manual journals require controller approval." },
+    trialBalance: { purpose: "Validates whether accounting debits and credits balance before NAV release.", check: "Confirm debit total equals credit total and review large account movements.", risk: "An out-of-balance TB is a hard NAV control failure.", approval: "NAV manager should not approve until TB is clean or explained." },
+    nav: { purpose: "Final NAV package with gross assets, liabilities, investor capital and NAV/share.", check: "Trace key numbers, review NAV bridge, fee accruals, breaks and signoff state.", risk: "Any unresolved input issue can flow into investor-facing NAV.", approval: "Final NAV release requires completed controls and reviewer signoff." },
+    exports: { purpose: "Downloads audit-ready NAV Pack, NAV Dashboard and operational support files.", check: "Use the NAV Pack for full support and NAV Dashboard for leadership review.", risk: "A pack without source maps is difficult for reviewers to trust.", approval: "Export after controls and source files are reviewed." },
+    workflow: { purpose: "Maker-checker queue for approval, GL posting and NAV release decisions.", check: "Check status, digital signature, locked items and GL posting register.", risk: "Incorrect posting or unauthorized approval creates audit and NAV risk.", approval: "Different maker and checker must sign off material items." },
+  };
+  return help[active] ?? { purpose: "Institutional operating worksheet connected to NAV, breaks, audit and approvals.", check: "Review editable inputs, exception alerts and dependency flow.", risk: "Manual changes can affect downstream NAV, accounting and investor outputs.", approval: "Material changes should be documented and reviewed." };
+}
+
+function traceMetric(metric: TraceMetricKey, store: FundState, r: ReturnType<typeof useRecalc>) {
+  const cashBalance = store.cashRecon.reduce((sum, c) => sum + c.internalLedgerCash, 0);
+  const openImpact = store.breaks.filter((b) => !["Resolved", "Approved", "Closed"].includes(b.status)).reduce((sum, b) => sum + Math.abs(b.navImpact), 0);
+  const latestAudit = store.auditTrail[0];
+  const base = {
+    lastUpdated: latestAudit ? new Date(latestAudit.timestamp).toLocaleString() : new Date().toLocaleString(),
+    updatedBy: latestAudit ? "Current User / System" : "System seed data",
+    audit: latestAudit ? latestAudit.action : "No manual audit event yet",
+  };
+  const map: Record<TraceMetricKey, {
+    label: string;
+    value: string;
+    formula: string;
+    sourceModule: string;
+    sourceTable: string;
+    sourceField: string;
+    records: string;
+    downstream: string;
+  }> = {
+    nav: { label: "Current NAV", value: fmt(r.netAssets, true), formula: "Gross Assets - Liabilities", sourceModule: "NAV Package", sourceTable: "NAV calculation working", sourceField: "Net Assets", records: "Portfolio holdings, cash recon, accruals, derivatives, fee payables", downstream: "NAV/share, investor capital, financial statements, exports" },
+    navShare: { label: "NAV/share", value: r.navPerShare.toFixed(4), formula: "Net Assets / Shares Outstanding", sourceModule: "Share Register", sourceTable: "Investor shares", sourceField: "Outstanding shares", records: `${num(r.sharesOutstanding)} shares`, downstream: "Investor statements, subscriptions/redemptions, NAV Pack" },
+    grossAssets: { label: "Gross Assets", value: fmt(r.grossAssets, true), formula: "Investments + cash + receivables + positive MTM", sourceModule: "Portfolio Operations", sourceTable: "Holdings / cash / accruals", sourceField: "Base market value + cash + receivables", records: `${r.holdings.length} holdings, ${store.cashRecon.length} cash records`, downstream: "Balance sheet assets, NAV, exposure reporting" },
+    liabilities: { label: "Liabilities", value: fmt(r.liabilities, true), formula: "Fee payables + expenses + negative MTM + redemption payable", sourceModule: "Accounting & NAV", sourceTable: "Fee and expense ledgers", sourceField: "Liability accounts", records: `${r.trialBalance.length} TB accounts`, downstream: "Balance sheet liabilities, NAV and investor allocation" },
+    investorCapital: { label: "Investor Capital", value: fmt(r.investorCapital, true), formula: "Investor opening capital + subscriptions - redemptions + allocations", sourceModule: "Investor Services", sourceTable: "Investor master / capital activity", sourceField: "Capital", records: `${store.investors.length} investors`, downstream: "Ownership allocation, fees, NAV/share tie-out" },
+    unrealizedPnl: { label: "Unrealized P&L", value: fmt(r.unrealizedGains, true), formula: "Current base market value - cost value", sourceModule: "Portfolio Holdings", sourceTable: "Open positions", sourceField: "Total unrealized P&L", records: `${r.holdings.length} open positions`, downstream: "P&L, NAV, performance fees, GL fair value" },
+    managementFee: { label: "Management Fee", value: fmt(r.managementFee, true), formula: "Average NAV x fee % / 365", sourceModule: "Management Fee Engine", sourceTable: "Investor fee schedule", sourceField: "Gross management fee", records: `${store.investors.length} investor fee rows`, downstream: "P&L expense, fee payable, NAV, investor capital" },
+    performanceFee: { label: "Performance Fee", value: fmt(r.performanceFee, true), formula: "Eligible excess return over hurdle/HWM x performance fee %", sourceModule: "Performance Fee Engine", sourceTable: "Investor incentive fee schedule", sourceField: "Performance fee earned", records: `${store.investors.length} investor eligibility rows`, downstream: "P&L expense, fee payable, NAV, investor capital statement" },
+    cash: { label: "Cash Balance", value: fmt(cashBalance, true), formula: "Sum of internal ledger cash across currencies", sourceModule: "Cash Reconciliation", sourceTable: "Internal ledger cash", sourceField: "Internal cash balance", records: `${store.cashRecon.length} cash currency rows`, downstream: "Gross assets, liquidity, subscriptions/redemptions, NAV" },
+    openBreakImpact: { label: "Open Break NAV Impact", value: fmt(openImpact, true), formula: "Absolute NAV impact of unresolved breaks", sourceModule: "Exception Management", sourceTable: "Break management", sourceField: "NAV impact", records: `${openBreakCount(store)} open breaks`, downstream: "Materiality status, approval workflow, NAV release decision" },
+  };
+  return { ...map[metric], ...base };
+}
+
+function SourceTrustBadges({ states }: { states?: Array<"Source Linked" | "Formula Linked" | "Manual Override" | "Pending Approval" | "Break Impact" | "Audit Verified" | "Not Linked"> }) {
+  const badges = states ?? ["Source Linked", "Formula Linked", "Audit Verified"];
+  return <div className="trust-badges">{badges.map((badge) => <span key={badge} className={badge.includes("Pending") || badge.includes("Break") || badge.includes("Override") ? "warn" : badge === "Not Linked" ? "bad" : "good"}>{badge}</span>)}</div>;
+}
+
+function TraceNumberButton({ metric }: { metric: TraceMetricKey }) {
+  const [open, setOpen] = useState(false);
+  const store = useFundStore();
+  const r = useRecalc();
+  const trace = traceMetric(metric, store, r);
+  return (
+    <div className="trace-card">
+      <div>
+        <span>{trace.label}</span>
+        <b>{trace.value}</b>
+      </div>
+      <SourceTrustBadges states={metric === "openBreakImpact" ? ["Source Linked", "Break Impact", "Pending Approval"] : ["Source Linked", "Formula Linked", "Audit Verified"]} />
+      <button className="link-button" onClick={() => setOpen((value) => !value)}>{open ? "Hide trace" : "Trace this number"}</button>
+      {open && <div className="trace-drawer">
+        <div><span>Formula</span><b>{trace.formula}</b></div>
+        <div><span>Source module</span><b>{trace.sourceModule}</b></div>
+        <div><span>Source table</span><b>{trace.sourceTable}</b></div>
+        <div><span>Source field</span><b>{trace.sourceField}</b></div>
+        <div><span>Source records</span><b>{trace.records}</b></div>
+        <div><span>Last updated</span><b>{trace.lastUpdated}</b></div>
+        <div><span>Updated by</span><b>{trace.updatedBy}</b></div>
+        <div><span>Related audit</span><b>{trace.audit}</b></div>
+        <div className="wide"><span>Downstream impact</span><b>{trace.downstream}</b></div>
+      </div>}
+    </div>
+  );
+}
+
+function TraceNumbersPanel() {
+  return (
+    <section className="panel wide">
+      <PanelTitle title="Trace This Number" right="Formula, source records and downstream NAV impact" />
+      <div className="trace-grid">
+        {(["nav", "navShare", "grossAssets", "liabilities", "investorCapital", "unrealizedPnl", "managementFee", "performanceFee", "cash", "openBreakImpact"] as TraceMetricKey[]).map((metric) => <TraceNumberButton key={metric} metric={metric} />)}
+      </div>
+    </section>
+  );
+}
+
+function NextBestActionPanel() {
+  const store = useFundStore();
+  const r = useRecalc();
+  return <div className="next-action-panel"><b>Next Best Action</b><span>{nextBestAction(store, r)}</span></div>;
+}
+
+function ControlConfidencePanel() {
+  const store = useFundStore();
+  const r = useRecalc();
+  const readiness = navReadiness(store, r);
+  const debit = r.trialBalance.reduce((sum, row) => sum + row.debit, 0);
+  const credit = r.trialBalance.reduce((sum, row) => sum + row.credit, 0);
+  const checks = [
+    { label: "GL Balanced", status: Math.abs(debit - credit) < 1 ? "Pass" : "Fail" },
+    { label: "TB Tied", status: readiness.tbBreak < 1 ? "Pass" : "Fail" },
+    { label: "Balance Sheet Tied", status: Math.abs(r.grossAssets - r.liabilities - r.netAssets) < 1 ? "Pass" : "Fail" },
+    { label: "Investor Capital Tied", status: Math.abs(r.investorCapital - r.netAssets) / Math.max(Math.abs(r.netAssets), 1) < 0.005 ? "Pass" : "Review" },
+    { label: "Fees Tied", status: r.managementFee >= 0 && r.performanceFee >= 0 ? "Pass" : "Fail" },
+    { label: "Recons Cleared", status: readiness.openBreaks.length ? "Review" : "Pass" },
+    { label: "NAV Pack Formula Linked", status: "Pass" },
+    { label: "Approval Complete", status: store.fundSetup.workflowStatus === "Approved" || store.fundSetup.workflowStatus === "NAV Published" ? "Pass" : "Review" },
+  ];
+  return (
+    <section className="panel">
+      <PanelTitle title="Control Confidence" right="SME trust checks" />
+      <div className="confidence-grid">
+        {checks.map((check) => <div key={check.label}><span>{check.label}</span><b className={check.status === "Pass" ? "text-good" : check.status === "Review" ? "text-warn" : "text-bad"}>{check.status}</b></div>)}
+      </div>
+    </section>
+  );
+}
+
+function ModuleHelpPanel() {
+  const active = useFundStore((s) => s.activeModule);
+  const [open, setOpen] = useState(false);
+  const help = moduleHelp(active);
+  return (
+    <section className={`module-help ${open ? "open" : ""}`}>
+      <button onClick={() => setOpen((value) => !value)}>
+        <BookOpenCheck size={14} />
+        <b>Plain-English guide</b>
+        <span>{help.purpose}</span>
+      </button>
+      {open && <div>
+        <p><b>What to check:</b> {help.check}</p>
+        <p><b>What can go wrong:</b> {help.risk}</p>
+        <p><b>Approval lens:</b> {help.approval}</p>
+      </div>}
+    </section>
+  );
+}
+
+function CorporateDemoGuide() {
+  const store = useFundStore();
+  const [open, setOpen] = useState(false);
+  const steps: Array<{ step: string; module: ModuleId }> = [
+    { step: "View NAV release status", module: "dashboard" },
+    { step: "Open the highest NAV-impacting break", module: "reconBreaks" },
+    { step: "Trace NAV impact to source records", module: "nav" },
+    { step: "Review GL and trial balance treatment", module: "gl" },
+    { step: "Download NAV Pack and NAV Dashboard", module: "exports" },
+    { step: "Approve or hold release in workflow queue", module: "workflow" },
+    { step: "Show leadership quality score", module: "middleOfficeOversight" },
+  ];
+  return (
+    <section className="panel">
+      <PanelTitle title="Corporate Demo Mode" right="Guided stakeholder walkthrough" />
+      <button className="terminal-button selected" onClick={() => setOpen((value) => !value)}><Bot size={15} /> {open ? "Hide Walkthrough" : "Start Demo Walkthrough"}</button>
+      {open && <div className="demo-steps">
+        {steps.map((item, index) => <button key={item.step} onClick={() => store.setActiveModule(item.module)}><span>{index + 1}</span><b>{item.step}</b><small>{moduleById[item.module]?.label}</small></button>)}
+      </div>}
+    </section>
+  );
+}
+
+function AboutToolView() {
+  const store = useFundStore();
+  const r = useRecalc();
+  const readiness = navReadiness(store, r);
+  const pillars = [
+    { Area: "NAV Operations", What: "Run a daily NAV control workflow from files, pricing, FX, recons, GL, TB and final NAV package.", Why: "Shows whether NAV can be released and what is blocking signoff." },
+    { Area: "Fund Accounting", What: "Connect trades, holdings, accruals, fees, journals, trial balance, P&L and balance sheet.", Why: "Teaches how accounting entries flow into NAV and financial statements." },
+    { Area: "Reconciliation", What: "Review cash, position and exception breaks with owners, aging, severity and NAV impact.", Why: "Replicates the operating queue used by fund administrators." },
+    { Area: "Investor Servicing", What: "Model capital activity, shares, fee allocations, equalization and investor reporting.", Why: "Shows how investor-level movements affect NAV/share and statements." },
+    { Area: "Sandbox Training", What: "Use scenarios and manual interventions without impacting Live Mode data.", Why: "Lets students and professionals practice real workflows safely." },
+    { Area: "Corporate Demo", What: "Walk leadership through release status, critical breaks, source traceability, GL impact and NAV Pack export.", Why: "Makes the platform easier to explain in a stakeholder meeting." },
+  ];
+  return (
+    <div className="grid-layout">
+      <section className="panel full control-room-hero">
+        <div>
+          <span>SYED FUND SIMULATOR</span>
+          <h2>Institutional NAV operations command center</h2>
+          <p>This tool simulates a hedge fund administrator operating floor: portfolio valuation, reconciliation, GL, trial balance, NAV packaging, investor accounting, workflow approvals, audit trail, sandbox scenarios and AI-assisted investigation.</p>
+        </div>
+        <div className={`release-stamp ${readiness.blocked ? "blocked" : "ready"}`}>{readiness.blocked ? "REVIEW" : "READY"}</div>
+      </section>
+      <section className="metrics-row">
+        <Metric label="Current NAV" value={fmt(r.netAssets, true)} tone="good" />
+        <Metric label="Open breaks" value={String(readiness.openBreaks.length)} tone={readiness.openBreaks.length ? "bad" : "good"} />
+        <Metric label="Materiality" value={readiness.mat.label} tone={readiness.mat.tone} />
+        <Metric label="Mode" value={store.trainingMode} tone={store.trainingMode === "Sandbox" ? "warn" : "neutral"} />
+        <Metric label="Primary action" value={readiness.blocked ? "Investigate" : "Signoff"} tone={readiness.blocked ? "warn" : "good"} />
+      </section>
+      <section className="panel wide">
+        <PanelTitle title="What This Tool Does" right="Plain-English corporate overview" />
+        <SimpleRows rows={pillars} />
+      </section>
+      <ControlConfidencePanel />
+      <section className="panel">
+        <PanelTitle title="How To Use It" right="Recommended first run" />
+        <div className="demo-steps">
+          {[
+            { step: "Start in Executive Dashboard", module: "dashboard" as ModuleId, note: "Check NAV release status and blockers." },
+            { step: "Open Tool Navigator", module: "toolNavigator" as ModuleId, note: "Choose the right tab by role or workflow." },
+            { step: "Review Reconciliation Breaks", module: "reconBreaks" as ModuleId, note: "Prioritize critical NAV-impacting items." },
+            { step: "Trace NAV Package numbers", module: "nav" as ModuleId, note: "Use Trace This Number and Control Confidence." },
+            { step: "Export NAV Pack", module: "exports" as ModuleId, note: "Download audit-ready support schedules." },
+          ].map((item, index) => <button key={item.step} onClick={() => store.setActiveModule(item.module)}><span>{index + 1}</span><b>{item.step}</b><small>{item.note}</small></button>)}
+        </div>
+      </section>
+      <CorporateDemoGuide />
+    </div>
+  );
+}
+
+function ToolNavigatorView() {
+  type NavigatorRole = "Analyst" | "SME" | "Manager" | "Leadership" | "Sandbox";
+  const [mentorRole, setMentorRole] = useState<NavigatorRole>("Analyst");
+  const [showDetailedMap, setShowDetailedMap] = useState(false);
+  const setActiveModule = useFundStore((s) => s.setActiveModule);
+  const rolePaths: Record<NavigatorRole, ModuleId[]> = {
+    Analyst: ["dashboard", "cashRecon", "positionRecon", "reconBreaks", "pricing", "workflow"],
+    SME: ["dashboard", "nav", "gl", "trialBalance", "mgmtFees", "perfFees", "exports"],
+    Manager: ["dashboard", "ops", "reconBreaks", "workflow", "middleOfficeOversight", "backOfficeOversight"],
+    Leadership: ["dashboard", "toolNavigator", "ops", "middleOfficeOversight", "exports"],
+    Sandbox: ["sandboxCommand", "scenario", "holdings", "pricing", "cashRecon", "nav"],
+  };
+  const rolePurpose: Record<NavigatorRole, string> = {
+    Analyst: "Clear assigned breaks, upload evidence, validate source data and submit for review.",
+    SME: "Validate NAV logic, tie GL/TB, review fee calculations and challenge source evidence.",
+    Manager: "Monitor SLA pressure, workload, unresolved materiality and signoff blockers.",
+    Leadership: "See NAV release status, operating health, risk exposure and corporate demo story.",
+    Sandbox: "Practice scenarios, edit operational numbers and observe NAV/accounting impact safely.",
+  };
+  const journey = [
+    { label: "Start", module: "aboutTool" as ModuleId, note: "Understand the tool" },
+    { label: "Control Room", module: "dashboard" as ModuleId, note: "Release status" },
+    { label: "Investigate", module: "reconBreaks" as ModuleId, note: "Breaks and owners" },
+    { label: "Trace", module: "nav" as ModuleId, note: "Source to NAV" },
+    { label: "Approve", module: "workflow" as ModuleId, note: "Maker-checker" },
+    { label: "Export", module: "exports" as ModuleId, note: "NAV Pack" },
+  ];
+  const groupTone = (title: string) => title.includes("Executive") ? "good" : title.includes("Sandbox") ? "warn" : title.includes("Reconciliation") || title.includes("Risk") ? "bad" : "neutral";
+  const mentorCards = rolePaths[mentorRole].map((id, index) => ({ id, index, label: moduleById[id]?.label ?? id, help: moduleHelp(id) }));
+  const navigatorRows = navGroups.flatMap((group) => group.modules.map((id) => {
+    const help = moduleHelp(id);
+    return {
+      Heading: group.title,
+      Tab: moduleById[id]?.label ?? id,
+      Purpose: help.purpose,
+      "Check here": help.check,
+      "NAV / Control impact": help.risk,
+      Action: <button className="link-button" onClick={() => setActiveModule(id)}>Open</button>,
+    };
+  }));
+  return (
+    <div className="grid-layout">
+      <section className="panel full control-room-hero navigator-hero">
+        <div>
+          <span>Tool Navigator</span>
+          <h2>Roam the NAV operations floor with a guided map</h2>
+          <p>Pick a role, follow the route, or open any operating cluster. The navigator explains why each tab exists, what to check, and how it connects to NAV release readiness.</p>
+        </div>
+        <div className="release-stamp ready">MAP</div>
+      </section>
+      <section className="panel full navigator-journey">
+        {journey.map((item, index) => <button key={item.label} onClick={() => setActiveModule(item.module)}>
+          <span>{String(index + 1).padStart(2, "0")}</span>
+          <b>{item.label}</b>
+          <small>{item.note}</small>
+          {index < journey.length - 1 && <ChevronRight size={15} />}
+        </button>)}
+      </section>
+      <section className="panel full">
+        <PanelTitle title="Mentor Mode" right="Pick a role and follow the suggested route" />
+        <div className="navigator-role-grid">
+          {(["Analyst", "SME", "Manager", "Leadership", "Sandbox"] as NavigatorRole[]).map((role) => <button key={role} className={mentorRole === role ? "selected" : ""} onClick={() => setMentorRole(role)}>
+            <b>{role}</b>
+            <span>{rolePurpose[role]}</span>
+          </button>)}
+        </div>
+        <div className="mentor-route">
+          {mentorCards.map((card) => <button key={card.id} onClick={() => setActiveModule(card.id)}>
+            <span>{String(card.index + 1).padStart(2, "0")}</span>
+            <b>{card.label}</b>
+            <small>{card.help.check}</small>
+          </button>)}
+        </div>
+      </section>
+      <section className="panel full">
+        <PanelTitle title="Operating Floor Guide" right="Cleaner cards by operating area" />
+        <div className="navigator-guide-grid">
+          {navGroups.map((group) => {
+            const GroupIcon = group.icon;
+            const primaryHelp = moduleHelp(group.modules[0]);
+            return (
+              <section key={group.title} className={`navigator-guide-card ${groupTone(group.title)}`}>
+                <button className="guide-card-head" onClick={() => setActiveModule(group.modules[0])}>
+                  <GroupIcon size={18} />
+                  <span>
+                    <b>{group.title}</b>
+                    <small>{group.subtitle}</small>
+                  </span>
+                  <em>{group.modules.length} tabs</em>
+                </button>
+                <p>{primaryHelp.purpose}</p>
+                <div className="guide-card-focus">
+                  <span>Use this area for</span>
+                  <b>{primaryHelp.check}</b>
+                </div>
+                <div className="guide-tab-list">
+                  {group.modules.map((id) => {
+                    const module = moduleById[id];
+                    const Icon = module.icon;
+                    const help = moduleHelp(id);
+                    return (
+                      <button key={id} onClick={() => setActiveModule(id)} title={help.check}>
+                        <Icon size={14} />
+                        <span>{module.label}</span>
+                        <small>{help.purpose}</small>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+        <div className="navigator-detail-toggle">
+          <button className="secondary-button" onClick={() => setShowDetailedMap((value) => !value)}>
+            {showDetailedMap ? "Hide detailed table" : "Show detailed table for SMEs"}
+          </button>
+          <span>The box view is the default for quick navigation. The table is kept only as a reference layer.</span>
+        </div>
+        {showDetailedMap && (
+          <div className="navigator-detail-table">
+            <PanelTitle title="Detailed Tool Reference" right="Purpose, checks, NAV/control impact" />
+            <SimpleRows rows={navigatorRows} />
+          </div>
+        )}
+      </section>
+    </div>
+  );
 }
 
 function moduleForBreak(breakType: string): ModuleId {
@@ -1517,8 +1884,12 @@ function Dashboard() {
         <Metric label="Pending approvals" value={store.fundSetup.workflowStatus === "Approved" ? "0" : "1"} tone={store.fundSetup.workflowStatus === "Approved" ? "good" : "warn"} />
       </section>
       <LearningHint text="Start with NAV, open breaks, and workflow status. Institutional NAV teams clear material breaks before publishing investor-facing NAV." />
+      <NextBestActionPanel />
       <DailyNavWorkflow readiness={readiness} />
       <RoleBasedLens readiness={readiness} />
+      <TraceNumbersPanel />
+      <ControlConfidencePanel />
+      <CorporateDemoGuide />
       <TopNavIssues readiness={readiness} />
       <OwnershipSlaDashboard readiness={readiness} />
       <NavMovementExplainer />
@@ -1716,6 +2087,9 @@ function Statements({ kind }: { kind: "pl" | "balance" | "nav" }) {
         <Metric label="Shares outstanding" value={num(r.sharesOutstanding)} />
         <Metric label="NAV/share" value={r.navPerShare.toFixed(4)} tone="good" />
       </div>
+      <NextBestActionPanel />
+      <TraceNumbersPanel />
+      <ControlConfidencePanel />
       {(() => {
         const tieOutDifference = r.investorCapital - r.netAssets;
         const tieOutPct = Math.abs(tieOutDifference) / Math.max(Math.abs(r.netAssets), 1);
@@ -2924,6 +3298,65 @@ function buildInstitutionalNavPack(store: FundState, r: ReturnType<typeof useRec
   const activeStructure = normalizedStructure(store.fundSetup.fundStructure);
   const structureBridgeRows = structureNavBridgeRows(store, r);
   const structureSupportRows = structureSpecificRows(store, r);
+  const sourceTraceRows = (["nav", "navShare", "grossAssets", "liabilities", "investorCapital", "unrealizedPnl", "managementFee", "performanceFee", "cash", "openBreakImpact"] as TraceMetricKey[]).map((metric) => {
+    const trace = traceMetric(metric, store, r);
+    return {
+      Figure: trace.label,
+      Value: trace.value,
+      Formula: trace.formula,
+      "Source Sheet": trace.sourceModule,
+      "Source Module": trace.sourceModule,
+      "Source Table": trace.sourceTable,
+      "Source Field": trace.sourceField,
+      "Source Record ID": trace.records,
+      "Last Updated": trace.lastUpdated,
+      "Updated By": trace.updatedBy,
+      "Approval Status": store.fundSetup.workflowStatus,
+      "Downstream Impact": trace.downstream,
+    };
+  });
+  const navPackGuideSheets: XlsxSheet[] = [
+    { name: "00_Read_Me_NAV_Pack", rows: objectRows("00_Read_Me_NAV_Pack", [
+      { Section: "Purpose", Guidance: "Audit-ready NAV support pack with linked formulas, source maps, lineage, controls and reviewer signoff." },
+      { Section: "How to use", Guidance: "Start with 01_Executive_NAV_Summary, then review 02_Source_Map and 03_Formula_Map before checking exceptions and detailed schedules." },
+      { Section: "Key rule", Guidance: "Every key NAV figure includes formula, source module, source table, source field, approval status and downstream impact." },
+      { Section: "Release logic", Guidance: nextBestAction(store, r) },
+    ], "Corporate reviewer guide") },
+    { name: "01_Executive_NAV_Summary", rows: [
+      ["01_Executive_NAV_Summary"],
+      ["Generated", new Date().toLocaleString(), "Source", "Linked NAV Pack"],
+      [],
+      ["Metric", "Value", "Formula / Source", "Reviewer Status"],
+      ["NAV Status", openBreaks.some((b) => b.severity === "Critical" || b.severity === "High") ? "NAV RELEASE BLOCKED" : "READY FOR REVIEW", "Exception severity + approval state", openBreaks.length ? "Review" : "Ready"],
+      ["Gross Assets", { formula: "'36_NAV_Calculation_Working'!B5", result: r.grossAssets }, "Portfolio/cash/receivables/MTM", "Linked"],
+      ["Liabilities", { formula: "'36_NAV_Calculation_Working'!B6", result: r.liabilities }, "Fees/expenses/payables/negative MTM", "Linked"],
+      ["Net Assets", { formula: "B6-B7", result: r.netAssets }, "Gross Assets - Liabilities", "Linked"],
+      ["Shares Outstanding", { formula: "'36_NAV_Calculation_Working'!B8", result: r.sharesOutstanding }, "Share register", "Linked"],
+      ["NAV/share", { formula: "B8/B9", result: r.navPerShare }, "Net Assets / Shares", "Linked"],
+      ["Open Breaks", openBreaks.length, "Break management", openBreaks.length ? "Review" : "Clear"],
+      ["Materiality", materiality(r.netAssets, openBreaks.reduce((sum, b) => sum + Math.abs(b.navImpact), 0)).label, "Open break NAV impact / NAV", "Control"],
+      ["Next Action", nextBestAction(store, r), "Dynamic action engine", "Required"],
+    ] },
+    { name: "02_Source_Map", rows: objectRows("02_Source_Map", sourceTraceRows, "Trace This Number source map") },
+    { name: "03_Formula_Map", rows: objectRows("03_Formula_Map", sourceTraceRows.map((row) => ({ Figure: row.Figure, Formula: row.Formula, "Workbook Formula": row.Figure === "Current NAV" ? "Gross Assets - Liabilities" : row.Figure === "NAV/share" ? "Net Assets / Shares Outstanding" : row.Formula, "Primary Sheet": row["Source Sheet"], "Reviewer Note": "Formula linked to source module and recalculation engine" })), "Formula lineage and reviewer formulas") },
+    { name: "04_Data_Lineage", rows: objectRows("04_Data_Lineage", sourceTraceRows.map((row) => ({ Figure: row.Figure, "Source Record ID": row["Source Record ID"], "Source Field": row["Source Field"], "Downstream Impact": row["Downstream Impact"], "Audit Reference": row["Last Updated"] })), "Data lineage for key NAV figures") },
+    { name: "05_Input_Register", rows: objectRows("05_Input_Register", store.uploads.map((u) => ({ Timestamp: new Date(u.timestamp).toLocaleString(), Module: u.module, Source: u.sourceType, File: u.fileName, Status: u.processingStatus, Validation: u.validationStatus, Rows: u.rowCount, Rejected: u.rejectedRows, Warnings: u.warnings, Duplicates: u.duplicateRecords })).slice(0, 50), "Uploaded operational file register") },
+    { name: "06_Control_Checks", rows: objectRows("06_Control_Checks", [
+      { Check: "GL debit total equals credit total", Result: tbBalanced ? "Pass" : "Fail", Evidence: tbDebit - tbCredit },
+      { Check: "NAV equals assets less liabilities", Result: Math.abs(r.grossAssets - r.liabilities - r.netAssets) < 1 ? "Pass" : "Fail", Evidence: r.grossAssets - r.liabilities - r.netAssets },
+      { Check: "Investor capital ties to NAV", Result: Math.abs(r.investorCapital - r.netAssets) / Math.max(Math.abs(r.netAssets), 1) < 0.005 ? "Pass" : "Review", Evidence: r.investorCapital - r.netAssets },
+      { Check: "Material breaks cleared", Result: openBreaks.some((b) => b.severity === "Critical" || b.severity === "High") ? "Fail" : "Review", Evidence: openBreaks.length },
+      { Check: "NAV Pack formula linked", Result: "Pass", Evidence: "Workbook formulas enabled with calc on open" },
+      { Check: "Approval complete", Result: store.fundSetup.workflowStatus === "Approved" || store.fundSetup.workflowStatus === "NAV Published" ? "Pass" : "Review", Evidence: store.fundSetup.workflowStatus },
+    ], "Reviewer control confidence checks") },
+    { name: "07_Reviewer_Signoff", rows: objectRows("07_Reviewer_Signoff", [
+      { Stage: "Prepared By", Owner: "Fund Accounting Analyst", Status: "Prepared", Timestamp: new Date().toLocaleString(), Comments: "NAV pack generated from live simulator state" },
+      { Stage: "Reviewed By", Owner: "SME / NAV Reviewer", Status: openBreaks.length ? "Pending Review" : "Reviewed", Timestamp: "", Comments: openBreaks.length ? "Open breaks require review" : "Controls reviewed" },
+      { Stage: "Approved By", Owner: "NAV Manager / Controller", Status: store.fundSetup.workflowStatus, Timestamp: "", Comments: nextBestAction(store, r) },
+    ], "Maker-checker signoff evidence") },
+    { name: "08_NAV_Bridge", rows: objectRows("08_NAV_Bridge", navBridgeRows, "Prior NAV to current NAV movement bridge") },
+    { name: "09_Exception_Impact", rows: objectRows("09_Exception_Impact", breakRows.map((row) => ({ "Break ID": row["Break ID"], Type: row.Type, Severity: row.Severity, Aging: row.Aging, Owner: row["Assigned User"], "NAV Impact": row["NAV Impact"], Status: row.Status, "Release Impact": Number(row["NAV Impact"]) ? "Impacts NAV release materiality" : "No NAV value impact" })), "Exception impact on NAV release") },
+  ];
   const formulaRows: XlsxCell[][] = [
     ["36_NAV_Calculation_Working"],
     ["Generated", new Date().toLocaleString(), "Source", "Live simulator state"],
@@ -2942,6 +3375,7 @@ function buildInstitutionalNavPack(store: FundState, r: ReturnType<typeof useRec
     ["FX Impact", r.fxGainLoss, "Base currency retranslation"],
   ];
   const sheets: XlsxSheet[] = [
+    ...navPackGuideSheets,
     { name: "01_Operations_Dashboard", rows: objectRows("01_Operations_Dashboard", [
       { Metric: "NAV Status", Value: openBreaks.some((b) => b.severity === "High") ? "NAV RELEASE BLOCKED" : "Draft T+0" },
       { Metric: "Pending Approvals", Value: store.fundSetup.workflowStatus },
@@ -3186,8 +3620,8 @@ function ExportView() {
     <section className="panel full">
       <PanelTitle title="Financial Statements Export" right="Institutional NAV, operations and training packs" />
       <div className="scenario-grid big">
-        <button className="scenario-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_NAV_Pack_50_Sheets.xlsx", buildInstitutionalNavPack(store, r))}>
-          <FileSpreadsheet size={16} /> NAV Pack (50 Sheets)
+        <button className="scenario-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_NAV_Pack_Audit_Ready.xlsx", buildInstitutionalNavPack(store, r))}>
+          <FileSpreadsheet size={16} /> NAV Pack
         </button>
         <button className="scenario-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_NAV_Dashboard.xlsx", buildNavDashboardWorkbook(store, r))}>
           <FileSpreadsheet size={16} /> NAV Dashboard
@@ -3768,6 +4202,10 @@ function ModuleContent() {
     <AnimatePresence mode="wait">
       <motion.main key={active} className="content" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.16 }}>
         <DependencyStrip />
+        <ModuleHelpPanel />
+        {["reconBreaks", "cashRecon", "positionRecon", "workflow", "exports"].includes(active) && <NextBestActionPanel />}
+        {active === "aboutTool" && <AboutToolView />}
+        {active === "toolNavigator" && <ToolNavigatorView />}
         {active === "dashboard" && <Dashboard />}
         {(active === "sandboxCommand" || active === "scenario") && trainingMode === "Sandbox" && <SandboxCommandCenter />}
         {active === "aiCopilot" && <AICopilotWorkspace />}

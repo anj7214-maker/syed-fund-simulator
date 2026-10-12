@@ -14,7 +14,7 @@ function MissingClerkConfig() {
       <div className="auth-card">
         <div className="brand-mark">SF</div>
         <h1>Access Control Not Configured</h1>
-        <p>Add <code>VITE_CLERK_PUBLISHABLE_KEY</code> in Vercel and locally to enable approved-email access.</p>
+        <p>Add <code>VITE_CLERK_PUBLISHABLE_KEY</code> in Vercel and locally to enable registration and sign-in.</p>
       </div>
     </div>
   );

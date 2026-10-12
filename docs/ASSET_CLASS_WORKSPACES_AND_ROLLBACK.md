@@ -8,7 +8,7 @@ An additive, reversible navigation layer around the existing FundOps Lab account
 
 - `/`: Public Home, asset-class selection and pathway choice. Does not submit visitor details.
 - `/hedge-fund`: Hedge-fund-only sidebar, header, metrics, Copilot and workflows.
-- `/real-estate`: Standalone real-estate header, internal navigation and accounting workspace. No hedge-fund sidebar or metrics.
+- `/real-estate`: Standalone real-estate header, its own grouped left sidebar and accounting workspace. No hedge-fund tabs or metrics. The two horizontal navigation rows are replaced by sidebar groups and an active-area breadcrumb in this standalone view.
 
 Both workspaces still require the existing VisitorGate registration. This is not secure authentication, verified email, subscription enforcement or corporate authorization. No new login or payment service is introduced.
 
@@ -43,7 +43,7 @@ No rollback step should clear localStorage, revert financial transactions, delet
 ### Reversibility Files
 
 - Added: `src/workspaces/`, `public/workspace-previews/`, `vercel.json`, navigation tests, this document and the scoped deployment script.
-- Amended: App entry point/sidebar and optional pathway filtering in RealEstateWorkspace.
+- Amended: App entry point/sidebar and optional pathway filtering in RealEstateWorkspace. `src/realEstate/Sidebar.tsx` and `sidebar.css` provide the new Real Estate-only sidebar; the classic embedded view retains its horizontal navigation.
 - Accounting engines/stores and VisitorGate remain unchanged.
 
 ## QC / Release
@@ -67,3 +67,13 @@ Use `deploy-asset-workspaces.cmd` in normal CMD for scoped publishing. It reject
 - Standard `npm.cmd run build` hit the Codex runner's `spawn EPERM` subprocess restriction. Normal CMD/Vercel build remains a release gate.
 - Browser viewport override did not apply to the observed test surface (it continued reporting 1707px). Responsive CSS is supplied, but true mobile-size validation remains outstanding.
 - This navigation change has not been pushed or deployed yet.
+
+### Real Estate Sidebar Follow-Up: October 13, 2026
+
+The separation baseline is now local commit `bdb854c2695dfb0e383c0b67230ba44e3e5da5f5` (tracked with origin/main). Deployment of that commit was not checked during this sidebar amendment. The new sidebar amendment is local and uncommitted at the time of this note.
+
+Real Estate now mirrors the hedge-fund sidebar pattern: brand lockup, six expandable groups, active tab, independent collapse/expand state and mobile menu controls. Professional exposes all 22 tabs. Student essentials remain available; All operating areas restores the complete list. Breadcrumbs and workflow shortcuts select the same existing tab state, with no accounting changes.
+
+QC: all 22 sidebar links rendered their existing screens with active-page highlighting and no observed browser errors; Student reveal and classic horizontal rollback passed. The 15 navigation checks, 46 accounting checks, TypeScript and verification bundle passed. Standard production build remains blocked inside the runner by `spawn EPERM`; run the scoped CMD deployment script before release. True mobile-device verification is still outstanding.
+
+The global classic-navigation flag/query remains available. To undo only the sidebar while retaining separated pages, revert this sidebar-only release commit after it is created, or restore/promote the separation baseline after verifying it is the appropriate known-good deployment. Do not reset books or delete stored proposals.

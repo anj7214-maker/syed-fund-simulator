@@ -12,9 +12,9 @@ call node scripts/test-real-estate.mjs
 if errorlevel 1 exit /b 1
 call npm.cmd run build
 if errorlevel 1 exit /b 1
-git add src/App.tsx src/realEstate/Workspace.tsx src/workspaces public/workspace-previews vercel.json scripts/test-workspace-navigation.mjs docs/ASSET_CLASS_WORKSPACES_AND_ROLLBACK.md deploy-asset-workspaces.cmd
+git add src/App.tsx src/realEstate/Workspace.tsx src/realEstate/Sidebar.tsx src/realEstate/sidebar.css src/workspaces public/workspace-previews vercel.json scripts/test-workspace-navigation.mjs docs/ASSET_CLASS_WORKSPACES_AND_ROLLBACK.md deploy-asset-workspaces.cmd
 if errorlevel 1 exit /b 1
-git commit -m "Separate asset-class workspaces with reversible navigation"
+git commit -m "Add grouped left sidebar to Real Estate workspace"
 if errorlevel 1 exit /b 1
 git push origin main
 if errorlevel 1 exit /b 1

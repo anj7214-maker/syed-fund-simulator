@@ -1,0 +1,8 @@
+.re-sidebar { width: 288px; }
+.re-sidebar.re-sidebar-collapsed { width: 76px; }
+.re-sidebar .nav-item span { min-width: 0; overflow-wrap: anywhere; line-height: 1.4; }
+.re-sidebar .nav-item svg { flex: none; }
+.re-sidebar .nav-group-button:focus-visible, .re-sidebar .nav-item:focus-visible, .re-sidebar .icon-btn:focus-visible { outline: 2px solid #47d5e7; outline-offset: -2px; }
+.re-current-area { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 0 0 12px; color: #a8bbc5; font-size: 12px; }
+.re-current-area strong { color: #fff; font-weight: 600; }
+@media (max-width: 980px) { .re-sidebar .brand-copy { flex: 1; } }

@@ -4326,7 +4326,7 @@ export default function App() {
     setAiPanelOpen(false);
   }, [setAiPanelOpen]);
 
-  if (splitNavigation) return <AssetClassPortal renderWorkspace={(asset, pathway) => asset === "hedge-fund" ? <HedgeFundWorkspace pathway={pathway} /> : <div className="main-shell portal-re-shell"><RealEstateHeader /><main className="content"><RealEstateWorkspace exportWorkbook={downloadXlsx} pathway={pathway} /></main></div>} />;
+  if (splitNavigation) return <AssetClassPortal renderWorkspace={(asset, pathway) => asset === "hedge-fund" ? <HedgeFundWorkspace pathway={pathway} /> : <RealEstateWorkspace exportWorkbook={downloadXlsx} pathway={pathway} standalone />} />;
 
   return (
     <VisitorGate>

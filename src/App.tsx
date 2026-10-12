@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { SignIn, SignUp, SignedIn, SignedOut, UserButton, useUser } from "@clerk/clerk-react";
+import { VisitorGate } from "./components/VisitorGate";
 import { Activity, AlertTriangle, Banknote, BookOpenCheck, Bot, Brain, Calculator, ChevronRight, Download, FileDown, FileSpreadsheet, Gauge, GitBranch, Landmark, LineChart as LineIcon, LockKeyhole, MessageSquare, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, ShieldAlert, Sigma, SlidersHorizontal, TrendingDown, TrendingUp, UploadCloud, Users } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
@@ -1210,7 +1210,7 @@ function Header() {
         </div>
         <button className="terminal-button" onClick={() => setAiPanelOpen(true)}><Bot size={15} /> AI Copilot</button>
         {trainingMode === "Sandbox" && <button className="terminal-button" onClick={reset}><RefreshCw size={15} /> Reset book</button>}
-        <UserButton afterSignOutUrl="/" />
+        <span className="status-pill">Visitor</span>
       </div>
     </header>
   );
@@ -4278,56 +4278,14 @@ function CopilotPanel() {
     </aside>
   );
 }
-function AuthGate({ children }: { children: ReactNode }) {
-  const { user, isLoaded } = useUser();
-
-  if (!isLoaded) {
-    return (
-      <div className="auth-shell">
-        <div className="auth-card">
-          <div className="brand-mark">SF</div>
-          <h1>Checking Access</h1>
-          <p>Checking your registered account.</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) return null;
-  return children;
-}
-
 export default function App() {
-  const [authView, setAuthView] = useState<"signIn" | "signUp">("signIn");
   const setAiPanelOpen = useFundStore((s) => s.setAiPanelOpen);
   useEffect(() => {
     setAiPanelOpen(false);
   }, [setAiPanelOpen]);
 
   return (
-    <>
-      <SignedOut>
-        <div className="auth-shell">
-          <div className="auth-panel">
-            <div className="auth-copy">
-              <div className="brand-mark">SF</div>
-              <h1>SYED FUND SIMULATOR</h1>
-              <p>Create an account to access the NAV operations workstation. Already registered? Sign in to continue.</p>
-              <div className="segmented-control" role="group" aria-label="Account access">
-                <button className={authView === "signIn" ? "selected" : ""} type="button" aria-pressed={authView === "signIn"} onClick={() => setAuthView("signIn")}>Sign in</button>
-                <button className={authView === "signUp" ? "selected" : ""} type="button" aria-pressed={authView === "signUp"} onClick={() => setAuthView("signUp")}>Register</button>
-              </div>
-            </div>
-            {authView === "signUp" ? (
-              <SignUp routing="hash" forceRedirectUrl="/" />
-            ) : (
-              <SignIn routing="hash" forceRedirectUrl="/" />
-            )}
-          </div>
-        </div>
-      </SignedOut>
-      <SignedIn>
-        <AuthGate>
+    <VisitorGate>
           <div className="app-shell">
             <Sidebar />
             <div className="main-shell">
@@ -4336,8 +4294,6 @@ export default function App() {
             </div>
             <CopilotPanel />
           </div>
-        </AuthGate>
-      </SignedIn>
-    </>
+    </VisitorGate>
   );
 }

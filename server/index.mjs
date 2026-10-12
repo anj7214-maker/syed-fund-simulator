@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { URL } from "node:url";
+import visitors from "../api/visitors.mjs";
 
 const port = Number(process.env.API_PORT ?? 8787);
 const corsOrigin = process.env.API_CORS_ORIGIN ?? "http://127.0.0.1:5173";
@@ -346,6 +347,10 @@ const server = http.createServer(async (req, res) => {
   const path = routePath(url);
 
   if (req.method === "OPTIONS") return send(res, 204, {});
+  if (path === "/api/visitors") {
+    res.setHeader("Access-Control-Allow-Origin", corsOrigin);
+    return visitors(req, res);
+  }
   if (path === "/health") return send(res, 200, { status: "ok", service: "syed-fund-api", persistence: storageMode, time: new Date().toISOString() });
 
   const auth = requireAuth(req);

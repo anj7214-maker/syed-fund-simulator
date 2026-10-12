@@ -1,5 +1,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { VisitorGate } from "./components/VisitorGate";
+import { AssetClassPortal } from "./workspaces/Portal";
+import { hedgeEssentials, readPreferences, savePreferences, splitNavigationEnabled, type Pathway } from "./workspaces/navigation";
 import { RealEstateHeader, RealEstateWorkspace } from "./realEstate/Workspace";
 import { Activity, AlertTriangle, Banknote, BookOpenCheck, Bot, Brain, Calculator, ChevronRight, Download, FileDown, FileSpreadsheet, Gauge, GitBranch, Landmark, LineChart as LineIcon, LockKeyhole, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, ShieldAlert, Sigma, SlidersHorizontal, TrendingDown, TrendingUp, UploadCloud, Users, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -70,6 +72,7 @@ type NavGroup = {
   modules: ModuleId[];
 };
 
+const splitNavigation = splitNavigationEnabled(import.meta.env.VITE_ASSET_CLASS_WORKSPACES, window.location.search);
 const navGroups: NavGroup[] = [
   { title: "Tool Orientation", subtitle: "What it does and where to go", icon: BookOpenCheck, modules: ["aboutTool", "toolNavigator"] },
   { title: "Executive Control Room", subtitle: "NAV release, blockers, operating health", icon: Gauge, modules: ["dashboard", "ops"] },
@@ -84,7 +87,7 @@ const navGroups: NavGroup[] = [
   { title: "Workflow & Audit", subtitle: "Maker-checker, audit, manual controls", icon: BookOpenCheck, modules: ["workflow", "audit", "editableFields"] },
   { title: "Reporting & Export", subtitle: "NAV packs and operations packs", icon: Download, modules: ["exports"] },
   { title: "AI Copilot", subtitle: "Context-aware operations assistant", icon: Bot, modules: ["aiCopilot"] },
-];
+].filter((group) => !splitNavigation || !group.modules.includes("realEstate")) as NavGroup[];
 
 const moduleById = Object.fromEntries(modules.map((m) => [m.id, m])) as Record<ModuleId, typeof modules[number]>;
 
@@ -1114,9 +1117,11 @@ function generateCopilotReply(question: string, args: {
   return `${lead}${context?.summary ?? "I am reading the live simulator state."} Current NAV is ${fmt(r.netAssets, true)}, open breaks are ${openBreaks.length}, latest upload is ${latestUpload?.fileName ?? "none"}, and workflow is ${store.fundSetup.workflowStatus}. Ask about NAV movement, breaks, uploads, GL, holdings, FX, fees, or approval steps for a more targeted analysis.`;
 }
 
-function Sidebar() {
+function Sidebar({ pathway }: { pathway?: Pathway }) {
   const { activeModule, setActiveModule, collapsed, toggleSidebar, impactedModules } = useFundStore();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [showAllAreas, setShowAllAreas] = useState(false);
+  const visibleGroups = pathway !== "student" || showAllAreas ? navGroups : navGroups.map(group => ({ ...group, modules: group.modules.filter(id => hedgeEssentials.has(id) || id === activeModule) })).filter(group => group.modules.length);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 980px)").matches);
   const expanded = isMobile || !collapsed;
   useEffect(() => {
@@ -1153,7 +1158,8 @@ function Sidebar() {
         <button className="icon-btn ml-auto mobile-nav-toggle" onClick={() => setMobileOpen((open) => !open)} aria-expanded={mobileOpen} aria-controls="operating-navigation" aria-label={mobileOpen ? "Close navigation" : "Open navigation"} title={mobileOpen ? "Close navigation" : "Open navigation"}>{mobileOpen ? <X size={20} /> : <Menu size={20} />}</button>
       </div>
       <nav className="nav-list" id="operating-navigation" aria-label="Operating areas" onKeyDown={(event) => { if (event.key === "Escape") setMobileOpen(false); }}>
-        {navGroups.map((group) => {
+        {pathway === "student" && expanded && <label className="portal-essential-toggle"><input type="checkbox" checked={showAllAreas} onChange={event => setShowAllAreas(event.target.checked)} /> All operating areas</label>}
+        {visibleGroups.map((group) => {
           const GroupIcon = group.icon;
           const groupActive = group.modules.includes(activeModule);
           const groupImpacted = group.modules.some((id) => impactedModules.includes(id));
@@ -4299,12 +4305,28 @@ function CopilotPanel() {
     </aside>
   );
 }
+function HedgeFundWorkspace({ pathway }: { pathway: Pathway }) {
+  const activeModule = useFundStore(s => s.activeModule);
+  const setActiveModule = useFundStore(s => s.setActiveModule);
+  useEffect(() => {
+    const preferences = readPreferences(localStorage);
+    if (activeModule === "realEstate") {
+      const last = modules.find(m => m.id === preferences.lastHedgeModule && m.id !== "realEstate");
+      setActiveModule(last?.id ?? "dashboard");
+    } else savePreferences(localStorage, { ...preferences, lastHedgeModule: activeModule });
+  }, [activeModule, setActiveModule]);
+  if (activeModule === "realEstate") return <p role="status">Opening hedge-fund workspace...</p>;
+  return <div className="app-shell"><Sidebar pathway={pathway} /><div className="main-shell"><Header /><ModuleContent /></div><CopilotPanel /></div>;
+}
+
 export default function App() {
   const setAiPanelOpen = useFundStore((s) => s.setAiPanelOpen);
   const realEstate = useFundStore((s) => s.activeModule === "realEstate");
   useEffect(() => {
     setAiPanelOpen(false);
   }, [setAiPanelOpen]);
+
+  if (splitNavigation) return <AssetClassPortal renderWorkspace={(asset, pathway) => asset === "hedge-fund" ? <HedgeFundWorkspace pathway={pathway} /> : <div className="main-shell portal-re-shell"><RealEstateHeader /><main className="content"><RealEstateWorkspace exportWorkbook={downloadXlsx} pathway={pathway} /></main></div>} />;
 
   return (
     <VisitorGate>

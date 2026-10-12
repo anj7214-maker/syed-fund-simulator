@@ -1134,7 +1134,7 @@ function Sidebar() {
   return (
     <aside className={`sidebar ${collapsed ? "w-[76px]" : "w-[288px]"}`}>
       <div className="brand">
-        <div className="brand-mark" aria-label="FundOps Lab">FL</div>
+        <img className="fundops-logo" src="/brand/fundops-lab-icon.png" alt="FundOps Lab" width={42} height={42} />
         {!collapsed && <div><div className="brand-title">FundOps Lab</div><div className="brand-sub">NAV operations command center</div></div>}
         <button className="icon-btn ml-auto" onClick={toggleSidebar} title="Collapse sidebar">{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
       </div>
@@ -1463,12 +1463,12 @@ function AboutToolView() {
     <div className="grid-layout">
       <section className="panel full control-room-hero">
         <div>
-          <span>FundOps Lab</span>
+          <div className="about-brand-lockup"><img className="fundops-logo" src="/brand/fundops-lab-icon.png" alt="" width={42} height={42} /><span>FundOps Lab</span></div>
           <h2>Institutional NAV operations command center</h2>
           <p>This tool simulates a hedge fund administrator operating floor: portfolio valuation, reconciliation, GL, trial balance, NAV packaging, investor accounting, workflow approvals, audit trail, sandbox scenarios and AI-assisted investigation.</p>
           <div className="founder-credit">
-            <span>Founded by Syed Jafri</span>
-            <small>Copyright {new Date().getFullYear()} Syed Jafri. All rights reserved.</small>
+            <span>Founded by Syed Ali Jafri ACSI ICA</span>
+            <small>Copyright {new Date().getFullYear()} Syed Ali Jafri. All rights reserved.</small>
           </div>
         </div>
         <div className={`release-stamp ${readiness.blocked ? "blocked" : "ready"}`}>{readiness.blocked ? "REVIEW" : "READY"}</div>

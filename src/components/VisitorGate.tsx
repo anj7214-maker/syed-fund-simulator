@@ -54,8 +54,7 @@ export function VisitorGate({ children }: { children: ReactNode }) {
   return <div className="auth-shell">
     <section className="visitor-panel" aria-labelledby="visitor-title">
       <div className="auth-copy">
-        <div className="brand-mark" aria-label="FundOps Lab">FL</div>
-        <h1 id="visitor-title">FundOps Lab</h1>
+        <h1 id="visitor-title"><img className="fundops-wordmark" src="/brand/fundops-lab-logo.png" alt="FundOps Lab" width={240} height={160} /></h1>
         <span className="visitor-subtitle">NAV, Accounting &amp; Reconciliation Practice</span>
         <p>Tell us about yourself</p>
         <span className="visitor-subtitle">Enter your details to access the simulator.</span>
@@ -81,8 +80,8 @@ export function VisitorGate({ children }: { children: ReactNode }) {
         {error && <p role="alert" className="visitor-error">{error}</p>}
       </form>
       <footer className="founder-credit">
-        <span>Founded by Syed Jafri</span>
-        <small>Copyright {new Date().getFullYear()} Syed Jafri. All rights reserved.</small>
+        <span>Founded by Syed Ali Jafri ACSI ICA</span>
+        <small>Copyright {new Date().getFullYear()} Syed Ali Jafri. All rights reserved.</small>
       </footer>
     </section>
   </div>;

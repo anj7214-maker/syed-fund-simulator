@@ -17,6 +17,9 @@ code { color: #47d5e7; font-family: "JetBrains Mono", Consolas, monospace; }
 .sidebar { position: sticky; top: 0; height: 100vh; flex: none; border-right: 1px solid #263940; background: #0b1418; transition: width .18s ease; overflow: hidden; }
 .brand { display: flex; align-items: center; gap: 10px; height: 70px; padding: 12px; border-bottom: 1px solid #263940; }
 .brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid #47d5e7; color: #47d5e7; font-weight: 800; background: #101e24; }
+.fundops-logo { display: block; width: 42px; height: 42px; flex: none; object-fit: contain; background: #fff; border-radius: 4px; }
+.fundops-wordmark { display: block; width: min(240px, 100%); height: auto; aspect-ratio: 3 / 2; object-fit: contain; background: #fff; border-radius: 4px; }
+.about-brand-lockup { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .brand-title { font-size: 12px; font-weight: 800; letter-spacing: 0; color: #f6fbff; }
 .brand-sub { color: #78909d; font-size: 11px; margin-top: 2px; }
 .nav-list { height: calc(100vh - 70px); overflow: auto; padding: 8px; }

@@ -8,15 +8,17 @@ if errorlevel 1 (
 )
 call node scripts/test-workspace-previews.mjs
 if errorlevel 1 exit /b 1
+call node scripts/test-home-demo.mjs
+if errorlevel 1 exit /b 1
 call node scripts/test-workspace-navigation.mjs
 if errorlevel 1 exit /b 1
 call node scripts/test-real-estate.mjs
 if errorlevel 1 exit /b 1
 call npm.cmd run build
 if errorlevel 1 exit /b 1
-git add src/workspaces/Portal.tsx src/workspaces/WorkspacePreview.tsx src/workspaces/previewPolicy.ts src/workspaces/portal.css public/workspace-previews/hedge-fund.webm public/workspace-previews/real-estate.webm scripts/render-workspace-previews.mjs scripts/workspace-preview-renderer.html scripts/test-workspace-previews.mjs docs/WORKSPACE_VIDEO_PREVIEWS.md deploy-workspace-previews.cmd
+git add src/workspaces/Portal.tsx src/workspaces/WorkspacePreview.tsx src/workspaces/previewPolicy.ts src/workspaces/portal.css src/workspaces/PremiumHome.tsx src/workspaces/HomeImpactDemo.tsx src/workspaces/homeDemo.ts src/workspaces/premiumHome.css public/fonts public/workspace-previews/hedge-fund.webm public/workspace-previews/real-estate.webm scripts/render-workspace-previews.mjs scripts/workspace-preview-renderer.html scripts/test-workspace-previews.mjs scripts/test-home-demo.mjs docs/WORKSPACE_VIDEO_PREVIEWS.md docs/HOME_REDESIGN.md PRODUCT.md DESIGN.md deploy-workspace-previews.cmd
 if errorlevel 1 exit /b 1
-git commit -m "Add synthetic Sandbox walkthroughs to Home workspace previews"
+git commit -m "Refine public Home with interactive fund accounting practice"
 if errorlevel 1 exit /b 1
 git push origin main
 if errorlevel 1 exit /b 1

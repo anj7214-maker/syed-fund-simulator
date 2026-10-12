@@ -1,10 +1,12 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { ArrowRight, Building2, GraduationCap, Home, Landmark, BriefcaseBusiness } from "lucide-react";
 import { VisitorGate } from "../components/VisitorGate";
 import { WorkspacePreview } from "./WorkspacePreview";
 import { workspacePreviewsEnabled } from "./previewPolicy";
 import { readPreferences, resolveRoute, savePreferences, type AssetWorkspace, type Pathway, type PortalPreferences } from "./navigation";
 import "./portal.css";
+
+const PremiumHome = lazy(() => import("./PremiumHome").then(module => ({ default: module.PremiumHome })));
 
 function PathwayChoice({ value, onChange }: { value: Pathway; onChange: (value: Pathway) => void }) {
   return <div className="portal-pathways" role="group" aria-label="Practice pathway">
@@ -18,6 +20,7 @@ export function AssetClassPortal({ renderWorkspace }: { renderWorkspace: (asset:
   const [preferences, setPreferences] = useState(() => readPreferences(localStorage));
   const [expandedPreview, setExpandedPreview] = useState<AssetWorkspace | null>(null);
   const animatedPreviews = workspacePreviewsEnabled(import.meta.env.VITE_WORKSPACE_PREVIEWS, window.location.search);
+  const premiumHome = import.meta.env.VITE_PREMIUM_HOME !== "false" && new URLSearchParams(window.location.search).get("home") !== "classic";
   const pathway = preferences.pathway;
   useEffect(() => {
     const back = () => { setExpandedPreview(null); setRoute(resolveRoute(window.location.pathname)); };
@@ -52,6 +55,7 @@ export function AssetClassPortal({ renderWorkspace }: { renderWorkspace: (asset:
     { asset: "hedge-fund" as const, title: "Hedge Fund Accounting", Icon: Landmark, image: "/workspace-previews/hedge-fund.png", purpose: "Follow trades and positions through reconciliation, accounting and NAV.", topics: "Trades & holdings · Pricing · Reconciliation · GL & NAV · Investor capital" },
     { asset: "real-estate" as const, title: "Real Estate Fund Accounting", Icon: Building2, image: "/workspace-previews/real-estate.png", purpose: "Follow property and SPV books through consolidation and fund NAV.", topics: "Rent & receivables · Property expenses · Debt · Valuation · Consolidation" },
   ];
+  if (route === "home" && premiumHome) return <Suspense fallback={<main className="portal-not-found"><h1>FundOps Lab</h1><p>Loading practice desks...</p></main>}><PremiumHome pathway={pathway} setPathway={setPathway} navigate={navigate} lastWorkspace={preferences.lastWorkspace} videoEnabled={animatedPreviews} /></Suspense>;
   if (route === "home") return <div className="portal-home">
     <header className="portal-home-header"><a href="/" aria-label="FundOps Lab Home"><img className="fundops-logo" src="/brand/fundops-lab-icon.png" alt="" /><b>FundOps Lab</b></a><span>Accounting & Operations Practice</span></header>
     <main className="portal-home-main">

@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { VisitorGate } from "./components/VisitorGate";
-import { Activity, AlertTriangle, Banknote, BookOpenCheck, Bot, Brain, Calculator, ChevronRight, Download, FileDown, FileSpreadsheet, Gauge, GitBranch, Landmark, LineChart as LineIcon, LockKeyhole, MessageSquare, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, ShieldAlert, Sigma, SlidersHorizontal, TrendingDown, TrendingUp, UploadCloud, Users } from "lucide-react";
+import { Activity, AlertTriangle, Banknote, BookOpenCheck, Bot, Brain, Calculator, ChevronRight, Download, FileDown, FileSpreadsheet, Gauge, GitBranch, Landmark, LineChart as LineIcon, LockKeyhole, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, ShieldAlert, Sigma, SlidersHorizontal, TrendingDown, TrendingUp, UploadCloud, Users, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { useEffect, useMemo, useState } from "react";
@@ -1113,6 +1113,16 @@ function generateCopilotReply(question: string, args: {
 
 function Sidebar() {
   const { activeModule, setActiveModule, collapsed, toggleSidebar, impactedModules } = useFundStore();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia("(max-width: 980px)").matches);
+  const expanded = isMobile || !collapsed;
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 980px)");
+    const onChange = () => { setIsMobile(query.matches); setMobileOpen(false); };
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  useEffect(() => { setMobileOpen(false); }, [activeModule]);
   const activeGroup = navGroups.find((group) => group.modules.includes(activeModule))?.title ?? navGroups[0].title;
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set([activeGroup]));
   useEffect(() => {
@@ -1132,13 +1142,14 @@ function Sidebar() {
     if (!group.modules.includes(activeModule)) setActiveModule(group.modules[0]);
   };
   return (
-    <aside className={`sidebar ${collapsed ? "w-[76px]" : "w-[288px]"}`}>
+    <aside className={`sidebar ${collapsed ? "w-[76px]" : "w-[288px]"} ${mobileOpen ? "mobile-nav-open" : ""}`}>
       <div className="brand">
         <img className="fundops-logo" src="/brand/fundops-lab-icon.png" alt="FundOps Lab" width={42} height={42} />
-        {!collapsed && <div><div className="brand-title">FundOps Lab</div><div className="brand-sub">NAV operations command center</div></div>}
-        <button className="icon-btn ml-auto" onClick={toggleSidebar} title="Collapse sidebar">{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
+        {expanded && <div className="brand-copy"><div className="brand-title">FundOps Lab</div><div className="brand-sub">NAV operations command center</div></div>}
+        <button className="icon-btn ml-auto desktop-nav-toggle" onClick={toggleSidebar} title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
+        <button className="icon-btn ml-auto mobile-nav-toggle" onClick={() => setMobileOpen((open) => !open)} aria-expanded={mobileOpen} aria-controls="operating-navigation" aria-label={mobileOpen ? "Close navigation" : "Open navigation"} title={mobileOpen ? "Close navigation" : "Open navigation"}>{mobileOpen ? <X size={20} /> : <Menu size={20} />}</button>
       </div>
-      <nav className="nav-list">
+      <nav className="nav-list" id="operating-navigation" aria-label="Operating areas" onKeyDown={(event) => { if (event.key === "Escape") setMobileOpen(false); }}>
         {navGroups.map((group) => {
           const GroupIcon = group.icon;
           const groupActive = group.modules.includes(activeModule);
@@ -1148,20 +1159,20 @@ function Sidebar() {
             <div key={group.title} className={`nav-group ${groupActive ? "active" : ""} ${groupOpen ? "open" : ""}`}>
               <button className={`nav-group-button ${groupActive ? "active" : ""} ${groupImpacted ? "impacted" : ""}`} onClick={() => toggleGroup(group)} title={group.title}>
                 <GroupIcon size={16} />
-                {!collapsed && <>
+                {expanded && <>
                   <span><b>{group.title}</b><small>{group.subtitle}</small></span>
                   <ChevronRight size={14} className="nav-chevron" />
                 </>}
-                {collapsed && groupImpacted && <i />}
+                {!expanded && groupImpacted && <i />}
               </button>
-              {!collapsed && groupOpen && <div className="nav-children">
+              {expanded && groupOpen && <div className="nav-children">
                 {group.modules.map((id) => {
                   const m = moduleById[id];
                   const Icon = m.icon;
                   const active = activeModule === m.id;
                   const impacted = impactedModules.includes(m.id);
                   return (
-                    <button key={m.id} onClick={() => setActiveModule(m.id)} className={`nav-item ${active ? "active" : ""} ${impacted ? "impacted" : ""}`} title={m.label}>
+                    <button key={m.id} onClick={() => { setActiveModule(m.id); setMobileOpen(false); }} className={`nav-item ${active ? "active" : ""} ${impacted ? "impacted" : ""}`} title={m.label}>
                       <Icon size={15} />
                       <span>{m.label}</span>
                       {impacted && <i />}
@@ -1196,21 +1207,21 @@ function Header() {
         <h1>{label}</h1>
       </div>
       <div className="top-actions">
-        <select className="terminal-select" value={fundMode} onChange={(e) => setFundMode(e.target.value)}>
+        <select className="terminal-select" aria-label="Fund" value={fundMode} onChange={(e) => setFundMode(e.target.value)}>
           {["Long/Short Equity Fund", "Macro Fund", "Credit Fund", "Multi-Strategy Fund", "Distressed Fund", "Event Driven Fund"].map((m) => <option key={m}>{m}</option>)}
         </select>
         <div className="status-pill good">NAV {fmt(r.netAssets, true)}</div>
         <div className="status-pill">NAV/share {r.navPerShare.toFixed(4)}</div>
         <div className="status-pill bad">Open breaks {openBreakCount(useFundStore.getState())}</div>
         <div className={`status-pill ${mat.tone}`}>Materiality {mat.label}</div>
-        <div className="status-pill">Updated {pulse.data?.at ?? "live"}</div>
+        <div className="status-pill header-updated">Updated {pulse.data?.at ?? "live"}</div>
         <div className="environment-switch">
           <button className={trainingMode === "Live Mode" ? "selected" : ""} onClick={() => setTrainingMode("Live Mode")}>Live Mode</button>
           <button className={trainingMode === "Sandbox" ? "selected" : ""} onClick={() => { setTrainingMode("Sandbox"); setActiveModule("sandboxCommand"); }}>Sandbox</button>
         </div>
         <button className="terminal-button" onClick={() => setAiPanelOpen(true)}><Bot size={15} /> AI Copilot</button>
         {trainingMode === "Sandbox" && <button className="terminal-button" onClick={reset}><RefreshCw size={15} /> Reset book</button>}
-        <span className="status-pill">Visitor</span>
+        <span className="status-pill header-visitor">Visitor</span>
       </div>
     </header>
   );

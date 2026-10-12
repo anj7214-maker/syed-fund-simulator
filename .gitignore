@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.verification-dist/
 *.tsbuildinfo
 .npm-cache/
 .env

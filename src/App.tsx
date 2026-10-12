@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { VisitorGate } from "./components/VisitorGate";
+import { RealEstateHeader, RealEstateWorkspace } from "./realEstate/Workspace";
 import { Activity, AlertTriangle, Banknote, BookOpenCheck, Bot, Brain, Calculator, ChevronRight, Download, FileDown, FileSpreadsheet, Gauge, GitBranch, Landmark, LineChart as LineIcon, LockKeyhole, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, ShieldAlert, Sigma, SlidersHorizontal, TrendingDown, TrendingUp, UploadCloud, Users, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
@@ -14,6 +15,7 @@ import { institutionalApi } from "./services/institutionalApi";
 import { domesticCorporateActionHeaders, sampleDomesticCorporateActions } from "./data/sampleData";
 
 const modules: Array<{ id: ModuleId; label: string; icon: typeof Activity }> = [
+  { id: "realEstate", label: "Real Estate Fund Accounting", icon: Landmark },
   { id: "aboutTool", label: "About Tool", icon: BookOpenCheck },
   { id: "toolNavigator", label: "Tool Navigator", icon: Search },
   { id: "dashboard", label: "Executive Dashboard", icon: Gauge },
@@ -75,6 +77,7 @@ const navGroups: NavGroup[] = [
   { title: "Portfolio Operations", subtitle: "Setup, securities, trades, pricing, FX", icon: FileSpreadsheet, modules: ["fund", "structureComparison", "holdings", "trades", "security", "pricing", "fx", "corporateActions", "dividends", "coupons", "otc", "mtm"] },
   { title: "Reconciliation", subtitle: "Cash, positions, breaks, exceptions", icon: GitBranch, modules: ["cashRecon", "positionRecon", "reconBreaks", "exceptions"] },
   { title: "Accounting & NAV", subtitle: "GL, TB, P&L, balance sheet, NAV", icon: Calculator, modules: ["gl", "trialBalance", "pl", "balanceSheet", "nav", "expenses"] },
+  { title: "Real Estate Fund Accounting", subtitle: "Property, SPV and fund accounting", icon: Landmark, modules: ["realEstate"] },
   { title: "Investor Services", subtitle: "Capital activity, TA, investor reporting", icon: Users, modules: ["capital", "subsReds", "investorReporting", "taOversight"] },
   { title: "Fees & Waterfall", subtitle: "Management, performance, equalization, carry", icon: Sigma, modules: ["mgmtFees", "perfFees", "equalization", "waterfall"] },
   { title: "Risk & Oversight", subtitle: "Risk, stress, middle/back office quality", icon: ShieldAlert, modules: ["risk", "stress", "middleOfficeOversight", "backOfficeOversight"] },
@@ -1154,14 +1157,15 @@ function Sidebar() {
           const GroupIcon = group.icon;
           const groupActive = group.modules.includes(activeModule);
           const groupImpacted = group.modules.some((id) => impactedModules.includes(id));
-          const groupOpen = openGroups.has(group.title);
+          const standalone = group.modules[0] === "realEstate";
+          const groupOpen = !standalone && openGroups.has(group.title);
           return (
             <div key={group.title} className={`nav-group ${groupActive ? "active" : ""} ${groupOpen ? "open" : ""}`}>
-              <button className={`nav-group-button ${groupActive ? "active" : ""} ${groupImpacted ? "impacted" : ""}`} onClick={() => toggleGroup(group)} title={group.title}>
+              <button className={`nav-group-button ${groupActive ? "active" : ""} ${groupImpacted ? "impacted" : ""}`} onClick={() => { if (standalone) { setActiveModule("realEstate"); setMobileOpen(false); } else toggleGroup(group); }} title={group.title}>
                 <GroupIcon size={16} />
                 {expanded && <>
                   <span><b>{group.title}</b><small>{group.subtitle}</small></span>
-                  <ChevronRight size={14} className="nav-chevron" />
+                  {!standalone && <ChevronRight size={14} className="nav-chevron" />}
                 </>}
                 {!expanded && groupImpacted && <i />}
               </button>
@@ -1288,6 +1292,7 @@ function nextBestAction(store: FundState, r: ReturnType<typeof useRecalc>) {
 
 function moduleHelp(active: ModuleId) {
   const help: Partial<Record<ModuleId, { purpose: string; check: string; risk: string; approval: string }>> = {
+    realEstate: { purpose: "Separate property, SPV and fund accounting workspace with its own books.", check: "Select the real estate environment, review entity balances and trace the NAV working.", risk: "Unsupported valuations, accounting differences and pending proposals block simulated release.", approval: "Real estate approvals are separate from hedge-fund workflows." },
     aboutTool: { purpose: "Explains what the simulator does, who it is for and how to start.", check: "Use this first when presenting the platform to a new stakeholder.", risk: "Without this orientation, first-time users may jump into technical screens too quickly.", approval: "Good starting point for corporate demos and onboarding." },
     toolNavigator: { purpose: "Maps every tab to its operating heading and recommends role-based navigation paths.", check: "Choose Mentor Mode by user type, then open the recommended tabs in order.", risk: "Wrong navigation can hide the actual blocker or source schedule.", approval: "Use this to guide analysts, SMEs, managers and leadership." },
     dashboard: { purpose: "Morning NAV control room for release readiness, blockers and ownership.", check: "Start with release status, open breaks, top NAV drivers and next action.", risk: "Material breaks, stale prices or missing approvals can block release.", approval: "Leadership uses this view to decide whether NAV can move to signoff." },
@@ -4213,6 +4218,7 @@ function AICopilotWorkspace() {
 function ModuleContent() {
   const active = useFundStore((s) => s.activeModule);
   const trainingMode = useFundStore((s) => s.trainingMode);
+  if (active === "realEstate") return <main className="content"><RealEstateWorkspace exportWorkbook={downloadXlsx} /></main>;
   return (
     <AnimatePresence mode="wait">
       <motion.main key={active} className="content" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.16 }}>
@@ -4295,6 +4301,7 @@ function CopilotPanel() {
 }
 export default function App() {
   const setAiPanelOpen = useFundStore((s) => s.setAiPanelOpen);
+  const realEstate = useFundStore((s) => s.activeModule === "realEstate");
   useEffect(() => {
     setAiPanelOpen(false);
   }, [setAiPanelOpen]);
@@ -4304,10 +4311,10 @@ export default function App() {
           <div className="app-shell">
             <Sidebar />
             <div className="main-shell">
-              <Header />
+              {realEstate ? <RealEstateHeader /> : <Header />}
               <ModuleContent />
             </div>
-            <CopilotPanel />
+            {!realEstate && <CopilotPanel />}
           </div>
     </VisitorGate>
   );

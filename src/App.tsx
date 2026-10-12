@@ -874,7 +874,7 @@ function NavPackInputCenter() {
           <button className="terminal-button" onClick={downloadInputRegister}><Download size={15} /> Download Inputs</button>
           <button className="terminal-button" onClick={downloadNavSummary}><FileDown size={15} /> Download NAV Summary</button>
           <button className="terminal-button" onClick={() => downloadCsv("nav-pack-before-after-impact.csv", impactReportRows(store))}><FileSpreadsheet size={15} /> Download Impact</button>
-          <button className="terminal-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_Institutional_NAV_Pack.xlsx", buildInstitutionalNavPack(store, r))}><FileSpreadsheet size={15} /> NAV Pack</button>
+          <button className="terminal-button selected" onClick={() => downloadXlsx("FundOps_Lab_Institutional_NAV_Pack.xlsx", buildInstitutionalNavPack(store, r))}><FileSpreadsheet size={15} /> NAV Pack</button>
         </div>
       </div>
       <div className="nav-source-grid">
@@ -1134,8 +1134,8 @@ function Sidebar() {
   return (
     <aside className={`sidebar ${collapsed ? "w-[76px]" : "w-[288px]"}`}>
       <div className="brand">
-        <div className="brand-mark">SF</div>
-        {!collapsed && <div><div className="brand-title">SYED FUND SIMULATOR</div><div className="brand-sub">NAV operations command center</div></div>}
+        <div className="brand-mark" aria-label="FundOps Lab">FL</div>
+        {!collapsed && <div><div className="brand-title">FundOps Lab</div><div className="brand-sub">NAV operations command center</div></div>}
         <button className="icon-btn ml-auto" onClick={toggleSidebar} title="Collapse sidebar">{collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}</button>
       </div>
       <nav className="nav-list">
@@ -1463,9 +1463,13 @@ function AboutToolView() {
     <div className="grid-layout">
       <section className="panel full control-room-hero">
         <div>
-          <span>SYED FUND SIMULATOR</span>
+          <span>FundOps Lab</span>
           <h2>Institutional NAV operations command center</h2>
           <p>This tool simulates a hedge fund administrator operating floor: portfolio valuation, reconciliation, GL, trial balance, NAV packaging, investor accounting, workflow approvals, audit trail, sandbox scenarios and AI-assisted investigation.</p>
+          <div className="founder-credit">
+            <span>Founded by Syed Jafri</span>
+            <small>Copyright {new Date().getFullYear()} Syed Jafri. All rights reserved.</small>
+          </div>
         </div>
         <div className={`release-stamp ${readiness.blocked ? "blocked" : "ready"}`}>{readiness.blocked ? "REVIEW" : "READY"}</div>
       </section>
@@ -3527,7 +3531,7 @@ function buildNavDashboardWorkbook(store: FundState, r: ReturnType<typeof useRec
   const navMovePct = priorNav ? navMove / Math.abs(priorNav) : 0;
   const navBlocked = criticalBreaks.length > 0 || pendingApprovals > 0;
   const dashboardRows: XlsxCell[][] = [
-    ["SYED FUND SIMULATOR - NAV Dashboard"],
+    ["FundOps Lab - NAV Dashboard"],
     ["Generated", new Date().toLocaleString(), "Source", "Live simulator state"],
     [],
     ["Metric", "Value", "Formula / Source", "Status"],
@@ -3620,10 +3624,10 @@ function ExportView() {
     <section className="panel full">
       <PanelTitle title="Financial Statements Export" right="Institutional NAV, operations and training packs" />
       <div className="scenario-grid big">
-        <button className="scenario-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_NAV_Pack_Audit_Ready.xlsx", buildInstitutionalNavPack(store, r))}>
+        <button className="scenario-button selected" onClick={() => downloadXlsx("FundOps_Lab_NAV_Pack_Audit_Ready.xlsx", buildInstitutionalNavPack(store, r))}>
           <FileSpreadsheet size={16} /> NAV Pack
         </button>
-        <button className="scenario-button selected" onClick={() => downloadXlsx("SYED_FUND_SIMULATOR_NAV_Dashboard.xlsx", buildNavDashboardWorkbook(store, r))}>
+        <button className="scenario-button selected" onClick={() => downloadXlsx("FundOps_Lab_NAV_Dashboard.xlsx", buildNavDashboardWorkbook(store, r))}>
           <FileSpreadsheet size={16} /> NAV Dashboard
         </button>
         {["PDF NAV Pack", "Investor Statement", "Trial Balance", "P&L", "Balance Sheet"].map((x) => <button className="scenario-button" key={x} onClick={() => download(`${x.replaceAll(" ", "-").toLowerCase()}.csv`, csv)}><Download size={16} />{x}</button>)}

@@ -515,6 +515,8 @@ h1 { margin: 2px 0 0; font-size: 20px; letter-spacing: 0; }
 .visitor-form button { justify-content: center; min-height: 44px; }
 .visitor-form fieldset:disabled { opacity: .7; }
 .visitor-error { color: #ff9aa3; font-size: 14px; line-height: 1.5; }
+.founder-credit { display: grid; gap: 5px; margin-top: 20px; padding-top: 14px; border-top: 1px solid #263940; color: #b6c8d1; font-size: 13px; line-height: 1.5; }
+.founder-credit small { color: #78909d; font-size: 11px; }
 @media (max-width: 600px) { .visitor-panel { padding: 20px; } }
 .cl-card { background: #101d22; border: 1px solid #263940; box-shadow: none; }
 

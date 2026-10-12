@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ArrowRight, Building2, GraduationCap, Home, Landmark, BriefcaseBusiness } from "lucide-react";
 import { VisitorGate } from "../components/VisitorGate";
+import { WorkspacePreview } from "./WorkspacePreview";
+import { workspacePreviewsEnabled } from "./previewPolicy";
 import { readPreferences, resolveRoute, savePreferences, type AssetWorkspace, type Pathway, type PortalPreferences } from "./navigation";
 import "./portal.css";
 
@@ -14,9 +16,11 @@ function PathwayChoice({ value, onChange }: { value: Pathway; onChange: (value: 
 export function AssetClassPortal({ renderWorkspace }: { renderWorkspace: (asset: AssetWorkspace, pathway: Pathway) => ReactNode }) {
   const [route, setRoute] = useState(() => resolveRoute(window.location.pathname));
   const [preferences, setPreferences] = useState(() => readPreferences(localStorage));
+  const [expandedPreview, setExpandedPreview] = useState<AssetWorkspace | null>(null);
+  const animatedPreviews = workspacePreviewsEnabled(import.meta.env.VITE_WORKSPACE_PREVIEWS, window.location.search);
   const pathway = preferences.pathway;
   useEffect(() => {
-    const back = () => setRoute(resolveRoute(window.location.pathname));
+    const back = () => { setExpandedPreview(null); setRoute(resolveRoute(window.location.pathname)); };
     window.addEventListener("popstate", back);
     return () => window.removeEventListener("popstate", back);
   }, []);
@@ -32,6 +36,7 @@ export function AssetClassPortal({ renderWorkspace }: { renderWorkspace: (asset:
     }
   }, [route]);
   function navigate(next: "home" | AssetWorkspace) {
+    setExpandedPreview(null);
     window.history.pushState({}, "", next === "home" ? "/" : `/${next}`);
     setRoute(next);
     if (next !== "home") updatePreferences({ lastWorkspace: next });
@@ -51,7 +56,7 @@ export function AssetClassPortal({ renderWorkspace }: { renderWorkspace: (asset:
     <header className="portal-home-header"><a href="/" aria-label="FundOps Lab Home"><img className="fundops-logo" src="/brand/fundops-lab-icon.png" alt="" /><b>FundOps Lab</b></a><span>Accounting & Operations Practice</span></header>
     <main className="portal-home-main">
       <section className="portal-intro"><h1>FundOps Lab</h1><p>Connected accounting books. Operational practice. Visible NAV impact.</p><div className="portal-home-actions"><PathwayChoice value={pathway} onChange={setPathway} />{preferences.lastWorkspace && <button className="terminal-button" onClick={() => navigate(preferences.lastWorkspace!)}>Continue {preferences.lastWorkspace === "hedge-fund" ? "Hedge Fund" : "Real Estate"} <ArrowRight size={16} /></button>}</div></section>
-      <section aria-labelledby="workspace-choice"><h2 id="workspace-choice">Choose your asset class</h2><div className="portal-workspace-grid">{cards.map(({ asset, title, Icon, image, purpose, topics }) => <article className="portal-workspace-card" key={asset}><div className="portal-card-title"><Icon size={22} /><h3>{title}</h3></div><img className="portal-preview" src={image} alt={`${title} demonstration workspace`} width={1200} height={500} loading="lazy" /><div className="portal-card-body"><p>{purpose}</p><p className="portal-topics">{topics}</p><button className="terminal-button" onClick={() => navigate(asset)}>Enter {asset === "hedge-fund" ? "Hedge Fund" : "Real Estate"} <ArrowRight size={16} /></button></div></article>)}</div></section>
+      <section aria-labelledby="workspace-choice"><h2 id="workspace-choice">Choose your asset class</h2><div className="portal-workspace-grid">{cards.map(({ asset, title, Icon, image, purpose, topics }) => <article className="portal-workspace-card" key={asset}><div className="portal-card-title"><Icon size={22} /><h3>{title}</h3></div>{animatedPreviews ? <WorkspacePreview asset={asset} title={title} poster={image} expanded={expandedPreview === asset} obscured={expandedPreview !== null && expandedPreview !== asset} onExpand={setExpandedPreview} /> : <img className="portal-preview" src={image} alt={`${title} demonstration workspace`} width={1200} height={500} loading="lazy" />}<div className="portal-card-body"><p>{purpose}</p><p className="portal-topics">{topics}</p><button className="terminal-button" onClick={() => navigate(asset)}>Enter {asset === "hedge-fund" ? "Hedge Fund" : "Real Estate"} <ArrowRight size={16} /></button></div></article>)}</div></section>
       <section className="portal-pathway-summary"><h2>{pathway === "student" ? "Build interview-ready accounting reasoning" : "Practice operational judgment"}</h2><p>{pathway === "student" ? "Start with core books and NAV, investigate a case, then explain the journal, control and investor impact." : "Investigate connected exceptions, prepare corrections and work through review, evidence and signoff."}</p></section>
       <p className="portal-notice">Synthetic-data simulation, not a live client-accounting service. Visitor registration is required to enter; it is not a verified login. Do not upload confidential employer or client data.</p>
     </main><footer className="portal-home-footer"><span>Founded by Syed Ali Jafri ACSI ICA</span><a href="/?layout=legacy">Classic workspace</a><span>Copyright {new Date().getFullYear()} Syed Ali Jafri</span></footer>

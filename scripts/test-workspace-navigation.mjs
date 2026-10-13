@@ -20,5 +20,5 @@ test("Preference writes are isolated from accounting storage", () => { const wri
 test("Storage failures do not break navigation", () => assert.doesNotThrow(() => n.savePreferences({ setItem: () => { throw new Error("disabled"); } }, { pathway: "student" })));
 test("Student essentials retain core controls", () => { for (const item of ["gl", "trialBalance", "nav", "workflow", "audit"]) assert.ok(n.hedgeEssentials.has(item)); for (const item of ["Consolidation", "Trial Balance", "Approvals & Audit", "Exceptions & Controls"]) assert.ok(n.realEstateEssentials.has(item)); assert.equal(n.hedgeEssentials.has("realEstate"), false); });
 const config = JSON.parse(await readFile(new URL("../vercel.json", import.meta.url), "utf8"));
-test("Vercel direct-route rewrites leave API endpoints untouched", () => assert.deepEqual(config.rewrites.map(r => r.source), ["/hedge-fund", "/real-estate"]));
+test("Vercel direct-route rewrites leave API endpoints untouched", () => assert.deepEqual(config.rewrites.map(r => r.source), ["/hedge-fund", "/real-estate", "/calculators"]));
 console.log(`${count} workspace navigation checks passed.`);

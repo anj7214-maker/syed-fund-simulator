@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/hedge-fund", "destination": "/index.html" },
-    { "source": "/real-estate", "destination": "/index.html" }
+    { "source": "/real-estate", "destination": "/index.html" },
+    { "source": "/calculators", "destination": "/index.html" }
   ]
 }

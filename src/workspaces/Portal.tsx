@@ -7,6 +7,7 @@ import { readPreferences, resolveRoute, savePreferences, type AssetWorkspace, ty
 import "./portal.css";
 
 const PremiumHome = lazy(() => import("./PremiumHome").then(module => ({ default: module.PremiumHome })));
+const CalculatorDesk = lazy(() => import("../calculators/CalculatorDesk").then(module => ({ default: module.CalculatorDesk })));
 
 function PathwayChoice({ value, onChange }: { value: Pathway; onChange: (value: Pathway) => void }) {
   return <div className="portal-pathways" role="group" aria-label="Practice pathway">
@@ -28,7 +29,7 @@ export function AssetClassPortal({ renderWorkspace }: { renderWorkspace: (asset:
     return () => window.removeEventListener("popstate", back);
   }, []);
   useEffect(() => {
-    document.title = route === "home" ? "FundOps Lab | Accounting Practice" : route === "hedge-fund" ? "Hedge Fund Accounting | FundOps Lab" : route === "real-estate" ? "Real Estate Fund Accounting | FundOps Lab" : "Page Not Found | FundOps Lab";
+    document.title = route === "home" ? "FundOps Lab | Accounting Practice" : route === "calculators" ? "Waterfall & NAV Workbench | FundOps Lab" : route === "hedge-fund" ? "Hedge Fund Accounting | FundOps Lab" : route === "real-estate" ? "Real Estate Fund Accounting | FundOps Lab" : "Page Not Found | FundOps Lab";
     if (route === "hedge-fund" || route === "real-estate") {
       const current = readPreferences(localStorage);
       if (current.lastWorkspace !== route) {
@@ -38,11 +39,11 @@ export function AssetClassPortal({ renderWorkspace }: { renderWorkspace: (asset:
       }
     }
   }, [route]);
-  function navigate(next: "home" | AssetWorkspace) {
+  function navigate(next: "home" | "calculators" | AssetWorkspace) {
     setExpandedPreview(null);
     window.history.pushState({}, "", next === "home" ? "/" : `/${next}`);
     setRoute(next);
-    if (next !== "home") updatePreferences({ lastWorkspace: next });
+    if (next === "hedge-fund" || next === "real-estate") updatePreferences({ lastWorkspace: next });
     window.scrollTo({ top: 0 });
   }
   function updatePreferences(changes: Partial<PortalPreferences>) {
@@ -55,11 +56,12 @@ export function AssetClassPortal({ renderWorkspace }: { renderWorkspace: (asset:
     { asset: "hedge-fund" as const, title: "Hedge Fund Accounting", Icon: Landmark, image: "/workspace-previews/hedge-fund.png", purpose: "Follow trades and positions through reconciliation, accounting and NAV.", topics: "Trades & holdings · Pricing · Reconciliation · GL & NAV · Investor capital" },
     { asset: "real-estate" as const, title: "Real Estate Fund Accounting", Icon: Building2, image: "/workspace-previews/real-estate.png", purpose: "Follow property and SPV books through consolidation and fund NAV.", topics: "Rent & receivables · Property expenses · Debt · Valuation · Consolidation" },
   ];
-  if (route === "home" && premiumHome) return <Suspense fallback={<main className="portal-not-found"><h1>FundOps Lab</h1><p>Loading practice desks...</p></main>}><PremiumHome pathway={pathway} setPathway={setPathway} navigate={navigate} lastWorkspace={preferences.lastWorkspace} videoEnabled={animatedPreviews} /></Suspense>;
+  if (route === "calculators") return <Suspense fallback={<main className="portal-not-found"><h1>FundOps Lab</h1><p>Loading calculators...</p></main>}><CalculatorDesk home={() => navigate("home")} /></Suspense>;
+  if (route === "home" && premiumHome) return <Suspense fallback={<main className="portal-not-found"><h1>FundOps Lab</h1><p>Loading practice desks...</p></main>}><PremiumHome pathway={pathway} setPathway={setPathway} navigate={navigate} calculators={() => navigate("calculators")} lastWorkspace={preferences.lastWorkspace} videoEnabled={animatedPreviews} /></Suspense>;
   if (route === "home") return <div className="portal-home">
     <header className="portal-home-header"><a href="/" aria-label="FundOps Lab Home"><img className="fundops-logo" src="/brand/fundops-lab-icon.png" alt="" /><b>FundOps Lab</b></a><span>Accounting & Operations Practice</span></header>
     <main className="portal-home-main">
-      <section className="portal-intro"><h1>FundOps Lab</h1><p>Connected accounting books. Operational practice. Visible NAV impact.</p><div className="portal-home-actions"><PathwayChoice value={pathway} onChange={setPathway} />{preferences.lastWorkspace && <button className="terminal-button" onClick={() => navigate(preferences.lastWorkspace!)}>Continue {preferences.lastWorkspace === "hedge-fund" ? "Hedge Fund" : "Real Estate"} <ArrowRight size={16} /></button>}</div></section>
+      <section className="portal-intro"><h1>FundOps Lab</h1><p>Connected accounting books. Operational practice. Visible NAV impact.</p><div className="portal-home-actions"><PathwayChoice value={pathway} onChange={setPathway} /><button className="terminal-button" onClick={() => navigate("calculators")}>Free Waterfall & NAV Calculators <ArrowRight size={16} /></button>{preferences.lastWorkspace && <button className="terminal-button" onClick={() => navigate(preferences.lastWorkspace!)}>Continue {preferences.lastWorkspace === "hedge-fund" ? "Hedge Fund" : "Real Estate"} <ArrowRight size={16} /></button>}</div></section>
       <section aria-labelledby="workspace-choice"><h2 id="workspace-choice">Choose your asset class</h2><div className="portal-workspace-grid">{cards.map(({ asset, title, Icon, image, purpose, topics }) => <article className="portal-workspace-card" key={asset}><div className="portal-card-title"><Icon size={22} /><h3>{title}</h3></div>{animatedPreviews ? <WorkspacePreview asset={asset} title={title} poster={image} expanded={expandedPreview === asset} obscured={expandedPreview !== null && expandedPreview !== asset} onExpand={setExpandedPreview} /> : <img className="portal-preview" src={image} alt={`${title} demonstration workspace`} width={1200} height={500} loading="lazy" />}<div className="portal-card-body"><p>{purpose}</p><p className="portal-topics">{topics}</p><button className="terminal-button" onClick={() => navigate(asset)}>Enter {asset === "hedge-fund" ? "Hedge Fund" : "Real Estate"} <ArrowRight size={16} /></button></div></article>)}</div></section>
       <section className="portal-pathway-summary"><h2>{pathway === "student" ? "Build interview-ready accounting reasoning" : "Practice operational judgment"}</h2><p>{pathway === "student" ? "Start with core books and NAV, investigate a case, then explain the journal, control and investor impact." : "Investigate connected exceptions, prepare corrections and work through review, evidence and signoff."}</p></section>
       <p className="portal-notice">Synthetic-data simulation, not a live client-accounting service. Visitor registration is required to enter; it is not a verified login. Do not upload confidential employer or client data.</p>

@@ -1,12 +1,13 @@
 export type AssetWorkspace = "hedge-fund" | "real-estate";
 export type Pathway = "student" | "professional";
-export type PortalRoute = AssetWorkspace | "home" | "not-found";
+export type PortalRoute = AssetWorkspace | "home" | "calculators" | "not-found";
 
 export function resolveRoute(pathname: string): PortalRoute {
   const path = pathname.replace(/\/+$/, "") || "/";
   if (path === "/") return "home";
   if (path === "/hedge-fund") return "hedge-fund";
   if (path === "/real-estate") return "real-estate";
+  if (path === "/calculators") return "calculators";
   return "not-found";
 }
 

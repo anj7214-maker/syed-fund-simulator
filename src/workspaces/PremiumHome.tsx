@@ -1,11 +1,11 @@
 import { useRef, useState } from "react";
-import { ArrowRight, ArrowUpRight, Building2, GraduationCap, Landmark, BriefcaseBusiness, GitBranch, ScanLine, Scale, TrendingUp, UserRound, Play } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Building2, GraduationCap, Landmark, BriefcaseBusiness, GitBranch, ScanLine, Scale, TrendingUp, UserRound, Play, Calculator } from "lucide-react";
 import { HomeImpactDemo } from "./HomeImpactDemo";
 import { WorkspacePreview } from "./WorkspacePreview";
 import type { AssetWorkspace, Pathway } from "./navigation";
 import "./premiumHome.css";
 
-export function PremiumHome({ pathway, setPathway, navigate, lastWorkspace, videoEnabled }: { pathway: Pathway; setPathway: (value: Pathway) => void; navigate: (asset: AssetWorkspace) => void; lastWorkspace?: AssetWorkspace; videoEnabled: boolean }) {
+export function PremiumHome({ pathway, setPathway, navigate, calculators, lastWorkspace, videoEnabled }: { pathway: Pathway; setPathway: (value: Pathway) => void; navigate: (asset: AssetWorkspace) => void; calculators: () => void; lastWorkspace?: AssetWorkspace; videoEnabled: boolean }) {
   const [walkthrough, setWalkthrough] = useState<AssetWorkspace | null>(null);
   const choice = useRef<HTMLHeadingElement>(null); const demo = useRef<HTMLHeadingElement>(null);
   const focusSection = (target: typeof choice) => { target.current?.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" }); target.current?.focus({ preventScroll: true }); };
@@ -25,7 +25,7 @@ export function PremiumHome({ pathway, setPathway, navigate, lastWorkspace, vide
       <section className="home-hero"><img className="home-hero-mark" src="/brand/fundops-lab-icon.png" alt="" aria-hidden="true" /><div className="home-container home-hero-content">
         <h1>FundOps Lab</h1><p className="home-hero-outcome">Practice fund accounting.<br />Understand every NAV movement.</p>
         <p className="home-hero-description">Work through hedge fund and real estate accounting using connected books, operational exceptions, and visible financial impact.</p>
-        <div className="home-hero-actions"><button className="home-button" onClick={() => focusSection(choice)}>Start Practicing <ArrowRight size={19} /></button><button className="home-text-button" onClick={() => focusSection(demo)}><Play size={17} /> See How It Works</button></div>
+        <div className="home-hero-actions"><button className="home-button" onClick={() => focusSection(choice)}>Start Practicing <ArrowRight size={19} /></button><button className="home-text-button" onClick={calculators}><Calculator size={17} /> Free Waterfall & NAV Calculators</button><button className="home-text-button" onClick={() => focusSection(demo)}><Play size={17} /> See How It Works</button></div>
         <div className="home-founder"><UserRound size={18} /><span>Founded by <strong>Syed Ali Jafri</strong></span><span className="home-founder-credentials">ACSI ICA</span></div>
       </div></section>
       <section id="home-demo" className="home-section home-demo-section"><div className="home-container"><div className="home-section-heading"><h2 ref={demo} tabIndex={-1} className="home-section-title">One adjustment.<br />The whole book reacts.</h2><p>Explore the financial effect, not just the final number.</p></div><HomeImpactDemo /></div></section>

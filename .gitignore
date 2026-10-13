@@ -7,6 +7,7 @@ dist/
 .env.local
 .env.*.local
 .data/
+.impeccable/review/
 .codex/
 BACKUPS/
 *.log

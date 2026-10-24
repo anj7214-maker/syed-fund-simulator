@@ -1,0 +1,32 @@
+name: Registration database health
+
+on:
+  schedule:
+    # UTC: 00:17, 06:17, 12:17, 18:17. IST: 05:47, 11:47, 17:47, 23:47.
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: registration-database-health
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout reviewed monitor code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Run monitor regression checks
+        run: node --test server/tests/registration-health.test.mjs scripts/tests/registration-monitor.test.mjs
+      - name: Check database and notify on state changes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEALTH_ALERT_USER: anj7214-maker
+        run: node scripts/check-registration-health.mjs

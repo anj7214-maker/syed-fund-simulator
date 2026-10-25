@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ChevronRight, Menu, Search, X } from "lucide-react";
-import { mobileNavigationEnabled, searchAreas, type MobileArea } from "./mobileNavigation";
+import { mobileNavigationEnabled, recordLabel, searchAreas, type MobileArea } from "./mobileNavigation";
 if (mobileNavigationEnabled) void import("./mobileWorkspace.css");
 
 export function useMobileLayout() {
@@ -15,10 +15,10 @@ export function useMobileLayout() {
   return mobile && mobileNavigationEnabled;
 }
 
-export function ResponsiveDisclosure({ label, children, className = "" }: { label: string; children: ReactNode; className?: string }) {
+export function ResponsiveDisclosure({ label, children, className = "", collapse = true }: { label: string; children: ReactNode; className?: string; collapse?: boolean }) {
   const mobile = useMobileLayout();
   const [open, setOpen] = useState(false);
-  if (!mobile) return <div style={{ display: "contents" }} className={`desktop-disclosure ${className}`}>{children}</div>;
+  if (!mobile || !collapse) return <div style={{ display: "contents" }} className={`desktop-disclosure ${className}`}>{children}</div>;
   return <details className={`mobile-disclosure ${className}`} open={open} onToggle={event => setOpen(event.currentTarget.open)}>
     <summary>{label}<ChevronDown size={16} aria-hidden="true" /></summary>
     <div className="mobile-disclosure-body">{children}</div>
@@ -93,7 +93,11 @@ export function MobileModules({ areas, activeId, onSelect, workspace, options }:
   </>;
 }
 
-interface ReadableRow { label: string; values: { heading: string; value: string }[] }
+interface ReadableRow {
+  label: string;
+  values: { heading: string; value: string; control?: HTMLElement }[];
+  actions: { label: string; element: HTMLButtonElement }[];
+}
 export function ResponsiveTable({ children, label = "Scrollable data table" }: { children: ReactNode; label?: string }) {
   const mobile = useMobileLayout();
   const container = useRef<HTMLDivElement>(null);
@@ -131,19 +135,30 @@ export function ResponsiveTable({ children, label = "Scrollable data table" }: {
       const values = [...row.querySelectorAll(":scope > td,:scope > th")].map((cell, i) => {
         const controls = [...cell.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input,select,textarea")];
         const value = controls.length ? controls.map(control => control instanceof HTMLSelectElement ? control.selectedOptions[0]?.text : control instanceof HTMLInputElement && control.type === "checkbox" ? (control.checked ? "Yes" : "No") : control.value).join(" / ") : cell.textContent?.trim() ?? "";
-        return { heading: headings[i] || `Field ${i + 1}`, value };
+        return { heading: headings[i] || `Field ${i + 1}`, value, control: controls[0] };
       });
-      return { label: `${index + 1}. ${values[0]?.value || "Record"}`, values };
+      const actions = [...row.querySelectorAll<HTMLButtonElement>("button")].filter(button =>
+        /^(trace|view|open|explain|show)\b/i.test(button.textContent?.trim() ?? "") && !button.disabled
+      ).map(element => ({ label: element.textContent?.trim() || "Open source", element }));
+      return { label: recordLabel(values, index), values, actions };
     });
     setSelected(0);
     setRows(data);
   };
+  function openOriginal(element: HTMLElement, edit = false) {
+    setRows(null);
+    requestAnimationFrame(() => {
+      if (!element.isConnected || element.matches(":disabled")) return;
+      if (edit) { element.scrollIntoView({ block: "center", inline: "center" }); element.focus(); }
+      else element.click();
+    });
+  }
   return <div className="responsive-table">
     {mobile && wide && <div className="mobile-table-tools"><span>More columns <ChevronRight size={14} /></span><button ref={trigger} onClick={readRows}>Row details</button></div>}
     <div className="table-wrap" ref={container} tabIndex={mobile ? 0 : undefined} role={mobile ? "region" : undefined} aria-label={mobile ? label : undefined}>{children}</div>
     {rows && mobile && createPortal(<dialog ref={dialog} className="mobile-row-dialog" aria-labelledby={title} onCancel={event => { event.preventDefault(); setRows(null); }} onClose={() => { if (!dialog.current?.open) setRows(null); }}>
       <header><h2 id={title}>Record details</h2><button aria-label="Close row details" onClick={() => setRows(null)}><X size={22} /></button></header>
-      {rows.length ? <><label>Record<select value={selected} onChange={event => setSelected(Number(event.target.value))}>{rows.map((row, index) => <option key={index} value={index}>{row.label}</option>)}</select></label><dl>{rows[selected]?.values.map((value, index) => <div key={index}><dt>{value.heading}</dt><dd>{value.value || "Not set"}</dd></div>)}</dl></> : <p>No matching records.</p>}
+      {rows.length ? <><label>Record<select value={selected} onChange={event => setSelected(Number(event.target.value))}>{rows.map((row, index) => <option key={index} value={index}>{row.label}</option>)}</select></label><dl>{rows[selected]?.values.map((value, index) => <div key={index}><dt>{value.heading}</dt><dd>{value.value || "Not set"}{value.control && <button className="mobile-record-action" onClick={() => openOriginal(value.control!, true)}>Edit {value.heading}</button>}</dd></div>)}</dl><div className="mobile-record-actions">{rows[selected]?.actions.map((action, index) => <button key={index} onClick={() => openOriginal(action.element)}>{action.label}</button>)}</div></> : <p>No matching records.</p>}
     </dialog>, document.body)}
   </div>;
 }

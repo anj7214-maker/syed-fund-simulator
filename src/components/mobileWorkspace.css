@@ -3,6 +3,7 @@
 .responsive-table { min-width: 0; max-width: 100%; }
 .mobile-module-dialog, .mobile-row-dialog { color: #d6e2ea; background: #0b1418; border: 1px solid #34515c; padding: 0; }
 .mobile-module-dialog::backdrop, .mobile-row-dialog::backdrop { background: rgba(0,0,0,.7); }
+.app-shell .workflow-step { color: inherit; text-align: left; cursor: pointer; font: inherit; }
 @media (max-width: 980px) {
   .mobile-module-bar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 12px; min-height: 68px; padding: 8px 12px; border-bottom: 1px solid #263940; background: #0b1418; }
   .workspace-switch-long { display: none; }
@@ -64,6 +65,22 @@
   .mobile-row-dialog dd { margin: 4px 0; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
   .app-shell input, .app-shell select, .app-shell textarea { font-size: 16px; min-height: 44px; }
   .app-shell input[type="checkbox"], .app-shell input[type="radio"] { min-height: 24px; width: 24px; flex: none; }
+  .mobile-record-action { display: block; margin-top: 8px; padding: 8px 12px; }
+  .mobile-record-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px; }
+  .mobile-record-actions button { padding: 8px 12px; }
+  .mobile-role-context { color: #b5c8d2; font-size: 12px; }
+  .app-shell .workflow-step { color: inherit; text-align: left; cursor: pointer; font: inherit; }
+  .app-shell .workflow-step:focus-visible { outline: 2px solid #47d5e7; }
+  .app-shell .dashboard-support { grid-column: 1 / -1; }
+  .dashboard-support .mobile-disclosure-body { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .dashboard-support .mobile-disclosure-body > * { width: 100%; }
+  .app-shell .pricing-console { display: flex; flex-direction: column; }
+  .pricing-console > .panel-title { order: 0; }
+  .pricing-console > .responsive-table { order: 1; }
+  .pricing-console > .pricing-actions { order: 2; margin-top: 12px; }
+  .pricing-console > .pricing-upload { order: 3; margin-top: 12px; }
+  .app-shell .lens-tabs button { min-height: 44px; }
+  .app-shell .mobile-next-task { justify-content: space-between; min-height: 44px; }
   .app-shell .terminal-button, .app-shell .link-button, .app-shell .inline-actions button, .app-shell .re-table th button, .app-shell .re-action-row button { min-height: 44px; }
   .app-shell .re-table th button { padding: 8px 4px; }
   .app-shell .form-grid, .app-shell .re-form-grid { grid-template-columns: minmax(0, 1fr); }

@@ -66,3 +66,35 @@ Navigation success does not establish correctness of every financial workflow.
 - Physical-device keyboard and Safari checks remain outstanding.
 - No deployment or production-data changes were made.
 
+## Usability Follow-Up (Local, 2026-10-25)
+- Phone dashboard shows four primary metrics, one queue action and three leading
+  NAV-impacting issues. Workflow and supporting analysis remain expandable;
+  desktop keeps the complete dashboard.
+- Workflow stages open the relevant existing modules and return focus/scroll to
+  the new module heading. These shortcuts never approve or publish by themselves.
+- Pricing records precede actions and collapsed uploads on phones; desktop keeps
+  its previous order. Download actions remain available in a disclosure.
+- Price controls have record/field labels; the Copilot launcher is named.
+- Search aliases find cash breaks, bank mismatches and journal entries without
+  adding modules outside the supplied permitted navigation tree.
+- Record names include entity/account/currency where present. Read-only source
+  actions forward to the original enabled buttons. Edit shortcuts focus the
+  original grid control; no parallel editor or posting mechanism was added.
+- Real Estate shows the current demonstration role on phones and explains why
+  publication is unavailable. Existing role and accounting checks are unchanged.
+- Passed 121 automated checks: 18 mobile, 15 workspace, 46 real-estate and
+  42 calculator checks. Final production build succeeded; the existing bundle-size
+  warning remains. UI detector returned no findings.
+- Browser verified source trace forwarding, edit-focus return, cash-break search,
+  workflow-to-pricing navigation, role display and disabled publication guidance.
+- Both workspaces had no page-wide overflow at 360/430/768/1280 CSS pixels.
+  Desktop navigation remained present at 1280px.
+- At 390px, the collapsed Hedge Fund dashboard measured 1737px (previously 9678px).
+  First pricing input is around 519px from the top (previously 1708px).
+- Chrome became unavailable mid-QC; remaining checks used the in-app browser.
+  Only synthetic local registration details were submitted; promotional consent
+  was not selected. No production records were changed.
+- Screenshot: .impeccable/review/mobile-usability-dashboard.png.
+- These follow-up changes are not committed, pushed or deployed. Physical-device
+  keyboard/Safari testing remains outstanding.
+

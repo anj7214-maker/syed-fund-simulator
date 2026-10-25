@@ -8,7 +8,7 @@ import { RealEstateHeader, RealEstateWorkspace } from "./realEstate/Workspace";
 import { Activity, AlertTriangle, Banknote, BookOpenCheck, Bot, Brain, Calculator, ChevronRight, Download, FileDown, FileSpreadsheet, Gauge, GitBranch, Landmark, LineChart as LineIcon, LockKeyhole, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, RefreshCw, Search, ShieldAlert, Sigma, SlidersHorizontal, TrendingDown, TrendingUp, UploadCloud, Users, X } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useFundStore, useRecalc } from "./store/fundStore";
@@ -699,10 +699,22 @@ function FlashCell({ id, children }: { id: string; children: ReactNode }) {
   );
 }
 
-function EditableNumber({ value, onCommit, className = "" }: { value: number; onCommit: (n: number) => void; className?: string }) {
+function EditableNumber({ value, onCommit, className = "", label }: { value: number; onCommit: (n: number) => void; className?: string; label?: string }) {
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const element = input.current;
+    if (!element || label) return;
+    const cell = element.closest("td");
+    const heading = cell?.closest("table")?.querySelectorAll("thead tr:last-child th")[cell.cellIndex]?.textContent?.trim();
+    const row = cell?.closest("tr");
+    const identity = [...(row?.querySelectorAll("td") ?? [])].slice(0, 2).map(item => item.textContent?.trim()).filter(Boolean).join(" / ");
+    element.setAttribute("aria-label", [identity, heading].filter(Boolean).join(" - ") || "Numeric value");
+  }, [label, value]);
   const [draft, setDraft] = useState(String(value));
   return (
     <input
+      ref={input}
+      aria-label={label}
       className={`terminal-input ${className}`}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
@@ -729,7 +741,7 @@ function EditableText({ value, onCommit }: { value: string; onCommit: (value: st
   );
 }
 
-function ManualSubmitBar({ label, fields }: { label: string; fields: string }) {
+function ManualSubmitBar({ label, fields, compactMobile = false }: { label: string; fields: string; compactMobile?: boolean }) {
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
   const submitManualUpdates = useFundStore((s) => s.submitManualUpdates);
   const raiseCorrectionWorkflow = useFundStore((s) => s.raiseCorrectionWorkflow);
@@ -757,12 +769,14 @@ function ManualSubmitBar({ label, fields }: { label: string; fields: string }) {
           <AlertTriangle size={15} /> Raise NAV Correction
         </button>
       )}
+      <ResponsiveDisclosure label="Downloads & evidence" collapse={compactMobile}>
       <button className="terminal-button" onClick={() => downloadCsv(`${store.activeModule}-current-data.csv`, exportRowsForModule(store.activeModule, store, r))}>
         <Download size={15} /> Download Current Data
       </button>
       <button className="terminal-button" onClick={() => downloadCsv(`${store.activeModule}-before-after-impact.csv`, impactReportRows(store))}>
         <FileDown size={15} /> Download Impact Report
       </button>
+      </ResponsiveDisclosure>
       {submittedAt && <small>Submitted {submittedAt}</small>}
       {!submittedAt && <small>{store.trainingMode === "Sandbox" ? `${activeLabel} sandbox evidence pack` : `${activeLabel} production change control`}</small>}
     </div>
@@ -806,7 +820,7 @@ function FileUploadPanel({ module, title }: { module: UploadModule; title: strin
       </div>
       <div className={`drop-zone ${dragging ? "dragging" : ""}`} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); handleFile(e.dataTransfer.files[0]); }}>
         <UploadCloud size={20} />
-        <select className="terminal-select" value={sourceType} onChange={(e) => setSourceType(e.target.value)}>{uploadSources[module].map((s) => <option key={s}>{s}</option>)}</select>
+        <select className="terminal-select" aria-label={`${title} source`} value={sourceType} onChange={(e) => setSourceType(e.target.value)}>{uploadSources[module].map((s) => <option key={s}>{s}</option>)}</select>
         <label className="terminal-button">Upload File<input type="file" accept=".csv,.json,.xlsx" hidden onChange={(e) => handleFile(e.target.files?.[0])} /></label>
       </div>
       <SimpleRows rows={moduleUploads.map((u) => ({
@@ -1740,14 +1754,13 @@ function opsPackRows(kind: "break" | "scenario" | "performance" | "checklist" | 
   }));
 }
 
-function TopNavIssues({ readiness }: { readiness: ReturnType<typeof navReadiness> }) {
-  const setActiveModule = useFundStore((s) => s.setActiveModule);
-  const issues = [...readiness.openBreaks].sort((a, b) => Math.abs(b.navImpact) - Math.abs(a.navImpact)).slice(0, 5);
+function TopNavIssues({ readiness, limit = 5 }: { readiness: ReturnType<typeof navReadiness>; limit?: number }) {
+  const issues = [...readiness.openBreaks].sort((a, b) => Math.abs(b.navImpact) - Math.abs(a.navImpact)).slice(0, limit);
   return (
     <section className="panel">
-      <PanelTitle title="Top 5 NAV-Impacting Issues" right="Highest materiality first" />
+      <PanelTitle title={`Top ${limit} NAV-Impacting Issues`} right="Highest materiality first" />
       <div className="issue-list">
-        {issues.map((b) => <button key={b.id} onClick={() => setActiveModule(moduleForBreak(b.breakType))}>
+        {issues.map((b) => <button key={b.id} onClick={() => openOperationalModule(moduleForBreak(b.breakType))}>
           <span className={`tag ${b.severity === "Critical" || b.severity === "High" ? "bad" : b.severity === "Medium" ? "warn" : "good"}`}>{b.severity}</span>
           <b>{b.id} - {fmt(b.navImpact, true)}</b>
           <small>{b.owner} / {b.aging}d / {b.rootCause}</small>
@@ -1774,7 +1787,16 @@ function OwnershipSlaDashboard({ readiness }: { readiness: ReturnType<typeof nav
   );
 }
 
+function openOperationalModule(id: ModuleId) {
+  useFundStore.getState().setActiveModule(id);
+  requestAnimationFrame(() => {
+    document.querySelector<HTMLElement>(".mobile-module-bar h1")?.focus({ preventScroll: true });
+    window.scrollTo({ top: 0, behavior: "instant" });
+  });
+}
+
 function DailyNavWorkflow({ readiness }: { readiness: ReturnType<typeof navReadiness> }) {
+  const targets: ModuleId[] = ["exports", "pricing", "cashRecon", "reconBreaks", "gl", "nav", "workflow", "workflow"];
   const steps = [
     { step: "Load Files", owner: "Ops Intake", status: "Completed", detail: "PB, custodian, pricing and investor files available" },
     { step: "Validate Data", owner: "Data Control", status: readiness.stalePrices ? "Escalated" : "Completed", detail: readiness.stalePrices ? `${readiness.stalePrices} stale price(s)` : "Reference, price and FX checks clean" },
@@ -1789,13 +1811,13 @@ function DailyNavWorkflow({ readiness }: { readiness: ReturnType<typeof navReadi
     <section className="panel full">
       <PanelTitle title="Daily NAV Production Workflow" right="Load -> validate -> reconcile -> approve -> publish" />
       <div className="workflow-lane">
-        {steps.map((s, index) => <div key={s.step} className={`workflow-step ${s.status.toLowerCase().replace(/\s+/g, "-")}`}>
+        {steps.map((s, index) => <button type="button" key={s.step} onClick={() => openOperationalModule(targets[index])} className={`workflow-step ${s.status.toLowerCase().replace(/\s+/g, "-")}`}>
           <span>{String(index + 1).padStart(2, "0")}</span>
           <b>{s.step}</b>
           <small>{s.owner}</small>
           <p>{s.detail}</p>
           <em>{s.status}</em>
-        </div>)}
+        </button>)}
       </div>
     </section>
   );
@@ -1907,6 +1929,7 @@ function BreakEvidencePack({ readiness }: { readiness: ReturnType<typeof navRead
 }
 
 function Dashboard() {
+  const mobile = useMobileLayout();
   const r = useRecalc();
   const store = useFundStore();
   const readiness = navReadiness(store, r);
@@ -1925,19 +1948,26 @@ function Dashboard() {
         <Metric label="Net assets" value={fmt(r.netAssets, true)} tone="good" />
         <Metric label="Open breaks" value={String(readiness.openBreaks.length)} tone={readiness.openBreaks.length ? "bad" : "good"} />
         <Metric label="Materiality" value={readiness.mat.label} tone={readiness.mat.tone} />
-        <Metric label="Failed trades" value={String(readiness.failedTrades)} tone={readiness.failedTrades ? "warn" : "good"} />
+        {!mobile && <><Metric label="Failed trades" value={String(readiness.failedTrades)} tone={readiness.failedTrades ? "warn" : "good"} />
         <Metric label="Missing/stale prices" value={String(readiness.stalePrices)} tone={readiness.stalePrices ? "bad" : "good"} />
         <Metric label="NAV completion" value={`${Math.max(35, 100 - readiness.openBreaks.length * 5 - readiness.stalePrices * 10)}%`} tone={readiness.blocked ? "warn" : "good"} />
-        <Metric label="Pending approvals" value={store.fundSetup.workflowStatus === "Approved" ? "0" : "1"} tone={store.fundSetup.workflowStatus === "Approved" ? "good" : "warn"} />
+        <Metric label="Pending approvals" value={store.fundSetup.workflowStatus === "Approved" ? "0" : "1"} tone={store.fundSetup.workflowStatus === "Approved" ? "good" : "warn"} /></>}
       </section>
       <LearningHint text="Start with NAV, open breaks, and workflow status. Institutional NAV teams clear material breaks before publishing investor-facing NAV." />
       <NextBestActionPanel />
-      <DailyNavWorkflow readiness={readiness} />
+      {mobile && <button className="terminal-button selected mobile-next-task" onClick={() => openOperationalModule(readiness.blocked ? "reconBreaks" : "workflow")}>{readiness.blocked ? "Review break queue" : "Review signoff queue"} <ChevronRight size={16} /></button>}
+      {mobile && <TopNavIssues readiness={readiness} limit={3} />}
+      <ResponsiveDisclosure label="Daily NAV workflow"><DailyNavWorkflow readiness={readiness} /></ResponsiveDisclosure>
+      <ResponsiveDisclosure label="Analysis & control evidence" className="dashboard-support">
+      {mobile && <section className="metrics-row"><Metric label="Failed trades" value={String(readiness.failedTrades)} tone={readiness.failedTrades ? "warn" : "good"} />
+        <Metric label="Missing/stale prices" value={String(readiness.stalePrices)} tone={readiness.stalePrices ? "bad" : "good"} />
+        <Metric label="NAV completion" value={`${Math.max(35, 100 - readiness.openBreaks.length * 5 - readiness.stalePrices * 10)}%`} tone={readiness.blocked ? "warn" : "good"} />
+        <Metric label="Pending approvals" value={store.fundSetup.workflowStatus === "Approved" ? "0" : "1"} tone={store.fundSetup.workflowStatus === "Approved" ? "good" : "warn"} /></section>}
       <RoleBasedLens readiness={readiness} />
       <TraceNumbersPanel />
       <ControlConfidencePanel />
       <CorporateDemoGuide />
-      <TopNavIssues readiness={readiness} />
+      {!mobile && <TopNavIssues readiness={readiness} />}
       <OwnershipSlaDashboard readiness={readiness} />
       <NavMovementExplainer />
       <BreakEvidencePack readiness={readiness} />
@@ -1968,6 +1998,7 @@ function Dashboard() {
         </ResponsiveContainer>
       </section>
       <ExceptionPanel />
+      </ResponsiveDisclosure>
     </div>
   );
 }
@@ -2024,19 +2055,25 @@ function EditableFieldsView() {
 }
 
 function PricingEngine() {
+  const mobile = useMobileLayout();
   const { holdings, updateHolding } = useFundStore();
   const rows = holdings.map((h) => ({ ...h, variance: ((h.marketPrice - h.priorPrice) / h.priorPrice) * 100 }));
-  return (
-    <section className="panel full">
-      <PanelTitle title="Real-Time Pricing Console" right="Manual overrides trigger NAV, GL and investor allocation" />
-      <FileUploadPanel module="pricing" title="Pricing File Upload" />
-      <ManualSubmitBar label="Pricing override workflow" fields="Current Market Price" />
-      <ResponsiveTable>
+  const upload = (<div className="pricing-upload"><ResponsiveDisclosure label="Upload files & history"><FileUploadPanel module="pricing" title="Pricing File Upload" /></ResponsiveDisclosure></div>);
+  const actions = (<div className="pricing-actions"><ManualSubmitBar label="Pricing override workflow" fields="Current Market Price" compactMobile /></div>);
+  const grid = (<ResponsiveTable>
         <table className="data-grid">
           <thead><tr><th>Ticker</th><th>Asset</th><th>Source</th><th>Prior Day</th><th>Current Price</th><th>Move</th><th>Exception</th><th>Last Update</th></tr></thead>
-          <tbody>{rows.map((h) => <tr key={h.id}><td>{h.ticker}</td><td>{h.assetType}</td><td>{h.priceSource}</td><td>{num(h.priorPrice)}</td><td><FlashCell id={`${h.id}-marketPrice`}><EditableNumber value={h.marketPrice} onCommit={(v) => updateHolding(h.id, "marketPrice", v)} /></FlashCell></td><td className={h.variance >= 0 ? "text-good" : "text-bad"}>{h.variance.toFixed(2)}%</td><td>{Math.abs(h.variance) > 5 ? <span className="tag bad">Review</span> : <span className="tag good">Clean</span>}</td><td>{new Date(h.lastPriceTime).toLocaleTimeString()}</td></tr>)}</tbody>
+          <tbody>{rows.map((h) => <tr key={h.id}><td>{h.ticker}</td><td>{h.assetType}</td><td>{h.priceSource}</td><td>{num(h.priorPrice)}</td><td><FlashCell id={`${h.id}-marketPrice`}><EditableNumber label={`${h.ticker} - Current Price`} value={h.marketPrice} onCommit={(v) => updateHolding(h.id, "marketPrice", v)} /></FlashCell></td><td className={h.variance >= 0 ? "text-good" : "text-bad"}>{h.variance.toFixed(2)}%</td><td>{Math.abs(h.variance) > 5 ? <span className="tag bad">Review</span> : <span className="tag good">Clean</span>}</td><td>{new Date(h.lastPriceTime).toLocaleTimeString()}</td></tr>)}</tbody>
         </table>
-      </ResponsiveTable>
+      </ResponsiveTable>);
+  return (
+    <section className="panel full pricing-console">
+      <PanelTitle title="Real-Time Pricing Console" right="Manual overrides trigger NAV, GL and investor allocation" />
+      {!mobile && upload}
+      {!mobile && actions}
+      {grid}
+      {mobile && actions}
+      {mobile && upload}
     </section>
   );
 }
@@ -4300,7 +4337,7 @@ function ModuleContent() {
 function CopilotPanel() {
   const { aiPanelOpen, setAiPanelOpen, copilotContext, activeModule, trainingMode } = useFundStore();
   const label = modules.find((m) => m.id === activeModule)?.label ?? "Current Module";
-  if (!aiPanelOpen) return <button className="ai-rail" onClick={() => setAiPanelOpen(true)}><Bot size={18} /></button>;
+  if (!aiPanelOpen) return <button className="ai-rail" aria-label="Open AI Copilot" title="Open AI Copilot" onClick={() => setAiPanelOpen(true)}><Bot size={18} /></button>;
   const fallback: CopilotContext = {
     tab: activeModule,
     title: label,

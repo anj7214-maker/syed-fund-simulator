@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { Building2, Calculator, ChevronRight, Landmark, LineChart, Menu, PanelLeftClose, PanelLeftOpen, ShieldCheck, Users, X } from "lucide-react";
 import type { Pathway } from "../workspaces/navigation";
 import "./sidebar.css";
+import { MobileModules } from "../components/MobileWorkspace";
+import { mobileNavigationEnabled } from "../components/mobileNavigation";
 
 interface REGroup { name: string; tabs: string[] }
 const areaDetails = {
@@ -42,6 +44,7 @@ export function RealEstateSidebar({ groups, activeTab, onSelect, pathway, showAl
     if (!group.tabs.includes(activeTab)) onSelect(group.tabs[0]);
     if (collapsed && !mobile) setCollapsed(false);
   }
+  if (mobile && mobileNavigationEnabled) return <MobileModules workspace="Real Estate Accounting" areas={groups.map(group => ({ title: group.name, items: group.tabs.map(tab => ({ id: tab, label: tab })) }))} activeId={activeTab} onSelect={onSelect} options={pathway === "student" ? <label className="portal-essential-toggle"><input type="checkbox" checked={showAll} onChange={event => onShowAll(event.target.checked)} /> All operating areas</label> : undefined} />;
   return <aside className={`sidebar re-sidebar ${collapsed ? "re-sidebar-collapsed" : ""} ${mobileOpen ? "mobile-nav-open" : ""}`}>
     <div className="brand">
       <img className="fundops-logo" src="/brand/fundops-lab-icon.png" alt="FundOps Lab" width={42} height={42} />

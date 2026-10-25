@@ -1,4 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
+import { MobileModules, ResponsiveDisclosure, ResponsiveTable, useMobileLayout } from "./components/MobileWorkspace";
+import { mobileNavigationEnabled } from "./components/mobileNavigation";
 import { VisitorGate } from "./components/VisitorGate";
 import { AssetClassPortal } from "./workspaces/Portal";
 import { hedgeEssentials, readPreferences, savePreferences, splitNavigationEnabled, type Pathway } from "./workspaces/navigation";
@@ -1149,6 +1151,7 @@ function Sidebar({ pathway }: { pathway?: Pathway }) {
     });
     if (!group.modules.includes(activeModule)) setActiveModule(group.modules[0]);
   };
+  if (isMobile && mobileNavigationEnabled) return <MobileModules workspace="Hedge Fund Accounting" areas={visibleGroups.map(group => ({ title: group.title, description: group.subtitle, items: group.modules.map(id => ({ id, label: moduleById[id].label })) }))} activeId={activeModule} onSelect={id => setActiveModule(id as ModuleId)} options={pathway === "student" ? <label className="portal-essential-toggle"><input type="checkbox" checked={showAllAreas} onChange={event => setShowAllAreas(event.target.checked)} /> All operating areas</label> : undefined} />;
   return (
     <aside className={`sidebar ${collapsed ? "w-[76px]" : "w-[288px]"} ${mobileOpen ? "mobile-nav-open" : ""}`}>
       <div className="brand">
@@ -1199,6 +1202,7 @@ function Sidebar({ pathway }: { pathway?: Pathway }) {
 }
 
 function Header() {
+  const mobile = useMobileLayout();
   const { fundMode, setFundMode, reset, trainingMode, setTrainingMode, setAiPanelOpen, activeScenarioImpact, breaks, setActiveModule } = useFundStore();
   const r = useRecalc();
   const active = useFundStore((s) => s.activeModule);
@@ -1210,6 +1214,23 @@ function Header() {
   });
   const scenarioImpact = activeScenarioImpact ? impactDelta(activeScenarioImpact.before.nav, activeScenarioImpact.after.nav).delta : 0;
   const mat = materiality(r.netAssets, scenarioImpact || breaks.reduce((sum, b) => sum + (!["Resolved", "Approved", "Closed"].includes(b.status) ? b.navImpact : 0), 0));
+  if (mobile) return <header className="topbar mobile-compact-header"><div className="top-actions"><div className="environment-switch">
+          <button className={trainingMode === "Live Mode" ? "selected" : ""} onClick={() => setTrainingMode("Live Mode")}>Live Mode</button>
+          <button className={trainingMode === "Sandbox" ? "selected" : ""} onClick={() => { setTrainingMode("Sandbox"); setActiveModule("sandboxCommand"); }}>Sandbox</button>
+        </div><ResponsiveDisclosure label={`Fund & status · NAV ${fmt(r.netAssets, true)}`}>
+        <select className="terminal-select" aria-label="Fund" value={fundMode} onChange={(e) => setFundMode(e.target.value)}>
+          {["Long/Short Equity Fund", "Macro Fund", "Credit Fund", "Multi-Strategy Fund", "Distressed Fund", "Event Driven Fund"].map((m) => <option key={m}>{m}</option>)}
+        </select>
+        <div className="status-pill good">NAV {fmt(r.netAssets, true)}</div>
+        <div className="status-pill">NAV/share {r.navPerShare.toFixed(4)}</div>
+        <div className="status-pill bad">Open breaks {openBreakCount(useFundStore.getState())}</div>
+        <div className={`status-pill ${mat.tone}`}>Materiality {mat.label}</div>
+        <div className="status-pill header-updated">Updated {pulse.data?.at ?? "live"}</div>
+        
+        <button className="terminal-button" onClick={() => setAiPanelOpen(true)}><Bot size={15} /> AI Copilot</button>
+        {trainingMode === "Sandbox" && <button className="terminal-button" onClick={reset}><RefreshCw size={15} /> Reset book</button>}
+        <span className="status-pill header-visitor">Visitor</span>
+      </ResponsiveDisclosure></div></header>;
   return (
     <header className="topbar">
       <div>
@@ -1984,12 +2005,12 @@ function HoldingsGrid() {
 function DataTable<T>({ data, columns }: { data: T[]; columns: ColumnDef<T>[] }) {
   const table = useReactTable({ data, columns, getCoreRowModel: getCoreRowModel() });
   return (
-    <div className="table-wrap">
+    <ResponsiveTable>
       <table className="data-grid">
         <thead>{table.getHeaderGroups().map((hg) => <tr key={hg.id}>{hg.headers.map((h) => <th key={h.id}>{flexRender(h.column.columnDef.header, h.getContext())}</th>)}</tr>)}</thead>
         <tbody>{table.getRowModel().rows.map((row) => <tr key={row.id}>{row.getVisibleCells().map((cell) => <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>)}</tr>)}</tbody>
       </table>
-    </div>
+    </ResponsiveTable>
   );
 }
 
@@ -2010,12 +2031,12 @@ function PricingEngine() {
       <PanelTitle title="Real-Time Pricing Console" right="Manual overrides trigger NAV, GL and investor allocation" />
       <FileUploadPanel module="pricing" title="Pricing File Upload" />
       <ManualSubmitBar label="Pricing override workflow" fields="Current Market Price" />
-      <div className="table-wrap">
+      <ResponsiveTable>
         <table className="data-grid">
           <thead><tr><th>Ticker</th><th>Asset</th><th>Source</th><th>Prior Day</th><th>Current Price</th><th>Move</th><th>Exception</th><th>Last Update</th></tr></thead>
           <tbody>{rows.map((h) => <tr key={h.id}><td>{h.ticker}</td><td>{h.assetType}</td><td>{h.priceSource}</td><td>{num(h.priorPrice)}</td><td><FlashCell id={`${h.id}-marketPrice`}><EditableNumber value={h.marketPrice} onCommit={(v) => updateHolding(h.id, "marketPrice", v)} /></FlashCell></td><td className={h.variance >= 0 ? "text-good" : "text-bad"}>{h.variance.toFixed(2)}%</td><td>{Math.abs(h.variance) > 5 ? <span className="tag bad">Review</span> : <span className="tag good">Clean</span>}</td><td>{new Date(h.lastPriceTime).toLocaleTimeString()}</td></tr>)}</tbody>
         </table>
-      </div>
+      </ResponsiveTable>
     </section>
   );
 }
@@ -2030,7 +2051,7 @@ function TradeBlotter() {
   const signedCash = trades.reduce((sum, t) => sum + tradeCashMovement(t), 0);
   const cashDebit = trades.reduce((sum, t) => sum + tradeCashDebit(t), 0);
   const cashCredit = trades.reduce((sum, t) => sum + tradeCashCredit(t), 0);
-  return <section className="panel full"><PanelTitle title="Institutional Trade Booking" right="Booked trades auto-create GL entries" /><div className="balance-banner good">Trade cash movement {fmt(signedCash, true)} = Cash Dr {fmt(cashDebit, true)} - Cash Cr {fmt(cashCredit, true)}</div><div className="table-wrap"><table className="data-grid"><thead><tr><th>Trade Date</th><th>Settle</th><th>Broker</th><th>B/S</th><th>Ticker</th><th>Qty</th><th>Price</th><th>Gross Amount</th><th>Fees</th><th>Cash Dr</th><th>Cash Cr</th><th>Signed Cash Movement</th><th>Status</th><th>Trade ID</th></tr></thead><tbody>{trades.map((t) => <tr key={t.id}><td>{t.tradeDate}</td><td>{t.settleDate}</td><td>{t.broker}</td><td>{t.side}</td><td>{t.ticker}</td><td><EditableNumber value={t.quantity} onCommit={(v) => updateTrade(t.id, "quantity", v)} /></td><td><EditableNumber value={t.price} onCommit={(v) => updateTrade(t.id, "price", v)} /></td><td>{fmt(tradeGross(t), true)}</td><td><EditableNumber value={t.fees} onCommit={(v) => updateTrade(t.id, "fees", v)} /></td><td>{tradeCashDebit(t) ? fmt(tradeCashDebit(t), true) : ""}</td><td>{tradeCashCredit(t) ? fmt(tradeCashCredit(t), true) : ""}</td><td className={tradeCashMovement(t) >= 0 ? "text-good" : "text-bad"}>{fmt(tradeCashMovement(t), true)}</td><td><span className={`tag ${t.status === "Failed" ? "bad" : t.status === "Pending" ? "warn" : "good"}`}>{t.status}</span></td><td>{t.id}</td></tr>)}</tbody></table></div></section>;
+  return <section className="panel full"><PanelTitle title="Institutional Trade Booking" right="Booked trades auto-create GL entries" /><div className="balance-banner good">Trade cash movement {fmt(signedCash, true)} = Cash Dr {fmt(cashDebit, true)} - Cash Cr {fmt(cashCredit, true)}</div><ResponsiveTable><table className="data-grid"><thead><tr><th>Trade Date</th><th>Settle</th><th>Broker</th><th>B/S</th><th>Ticker</th><th>Qty</th><th>Price</th><th>Gross Amount</th><th>Fees</th><th>Cash Dr</th><th>Cash Cr</th><th>Signed Cash Movement</th><th>Status</th><th>Trade ID</th></tr></thead><tbody>{trades.map((t) => <tr key={t.id}><td>{t.tradeDate}</td><td>{t.settleDate}</td><td>{t.broker}</td><td>{t.side}</td><td>{t.ticker}</td><td><EditableNumber value={t.quantity} onCommit={(v) => updateTrade(t.id, "quantity", v)} /></td><td><EditableNumber value={t.price} onCommit={(v) => updateTrade(t.id, "price", v)} /></td><td>{fmt(tradeGross(t), true)}</td><td><EditableNumber value={t.fees} onCommit={(v) => updateTrade(t.id, "fees", v)} /></td><td>{tradeCashDebit(t) ? fmt(tradeCashDebit(t), true) : ""}</td><td>{tradeCashCredit(t) ? fmt(tradeCashCredit(t), true) : ""}</td><td className={tradeCashMovement(t) >= 0 ? "text-good" : "text-bad"}>{fmt(tradeCashMovement(t), true)}</td><td><span className={`tag ${t.status === "Failed" ? "bad" : t.status === "Pending" ? "warn" : "good"}`}>{t.status}</span></td><td>{t.id}</td></tr>)}</tbody></table></ResponsiveTable></section>;
 }
 
 function GLView() {
@@ -2043,7 +2064,7 @@ function GLView() {
     .filter((line) => line.account === "Cash at broker")
     .reduce((sum, line) => sum + line.debit - line.credit, 0);
   const matched = Math.abs(blotterCash - glCash) < 1;
-  return <section className="panel full"><PanelTitle title="General Ledger" right="Double-entry auto-posting engine" /><div className={`balance-banner ${matched ? "good" : "bad"}`}>Trade Blotter cash movement {fmt(blotterCash, true)} {matched ? "matches" : "does not match"} GL Cash at broker {fmt(glCash, true)}</div><div className="table-wrap"><table className="data-grid"><thead><tr><th>JE</th><th>Date</th><th>Source</th><th>Memo</th><th>Account</th><th>Category</th><th>Debit</th><th>Credit</th><th>Audit Ref</th></tr></thead><tbody>{r.gl.flatMap((je) => je.lines.map((l, idx) => <tr key={`${je.id}-${idx}`}><td>{je.id}</td><td>{je.date}</td><td>{je.source}</td><td>{je.memo}</td><td>{l.account}</td><td>{l.category}</td><td>{l.debit ? fmt(l.debit, true) : ""}</td><td>{l.credit ? fmt(l.credit, true) : ""}</td><td>{l.ref}</td></tr>))}</tbody></table></div></section>;
+  return <section className="panel full"><PanelTitle title="General Ledger" right="Double-entry auto-posting engine" /><div className={`balance-banner ${matched ? "good" : "bad"}`}>Trade Blotter cash movement {fmt(blotterCash, true)} {matched ? "matches" : "does not match"} GL Cash at broker {fmt(glCash, true)}</div><ResponsiveTable><table className="data-grid"><thead><tr><th>JE</th><th>Date</th><th>Source</th><th>Memo</th><th>Account</th><th>Category</th><th>Debit</th><th>Credit</th><th>Audit Ref</th></tr></thead><tbody>{r.gl.flatMap((je) => je.lines.map((l, idx) => <tr key={`${je.id}-${idx}`}><td>{je.id}</td><td>{je.date}</td><td>{je.source}</td><td>{je.memo}</td><td>{l.account}</td><td>{l.category}</td><td>{l.debit ? fmt(l.debit, true) : ""}</td><td>{l.credit ? fmt(l.credit, true) : ""}</td><td>{l.ref}</td></tr>))}</tbody></table></ResponsiveTable></section>;
 }
 
 function TrialBalance() {
@@ -2145,7 +2166,7 @@ function Statements({ kind }: { kind: "pl" | "balance" | "nav" }) {
 function InvestorView({ fees = false }: { fees?: boolean }) {
   const { investors, updateInvestor, managementFeePct, performanceFeePct, setFee } = useFundStore();
   const r = useRecalc();
-  return <section className="panel full"><PanelTitle title={fees ? "Fee Engine" : "Investor Capital Activity"} right="Allocation basis updates NAV/share and statements" />{fees && <div className="fee-controls"><label>Management fee <EditableNumber value={managementFeePct} onCommit={(v) => setFee("management", v)} /></label><label>Performance fee <EditableNumber value={performanceFeePct} onCommit={(v) => setFee("performance", v)} /></label><span>Daily accrual: average NAV × fee % ÷ 365 = {fmt(r.managementFee)}</span></div>}<div className="table-wrap"><table className="data-grid"><thead><tr><th>Investor</th><th>Class</th><th>Capital</th><th>Shares</th><th>HWM</th><th>Equalization</th><th>Allocation %</th></tr></thead><tbody>{investors.map((i) => <tr key={i.id}><td>{i.name}</td><td>{i.className}</td><td><EditableNumber value={i.capital} onCommit={(v) => updateInvestor(i.id, "capital", v)} /></td><td><EditableNumber value={i.shares} onCommit={(v) => updateInvestor(i.id, "shares", v)} /></td><td><EditableNumber value={i.hwm} onCommit={(v) => updateInvestor(i.id, "hwm", v)} /></td><td>{fmt(i.equalizationCredit, true)}</td><td>{((i.capital / r.investorCapital) * 100).toFixed(2)}%</td></tr>)}</tbody></table></div></section>;
+  return <section className="panel full"><PanelTitle title={fees ? "Fee Engine" : "Investor Capital Activity"} right="Allocation basis updates NAV/share and statements" />{fees && <div className="fee-controls"><label>Management fee <EditableNumber value={managementFeePct} onCommit={(v) => setFee("management", v)} /></label><label>Performance fee <EditableNumber value={performanceFeePct} onCommit={(v) => setFee("performance", v)} /></label><span>Daily accrual: average NAV × fee % ÷ 365 = {fmt(r.managementFee)}</span></div>}<ResponsiveTable><table className="data-grid"><thead><tr><th>Investor</th><th>Class</th><th>Capital</th><th>Shares</th><th>HWM</th><th>Equalization</th><th>Allocation %</th></tr></thead><tbody>{investors.map((i) => <tr key={i.id}><td>{i.name}</td><td>{i.className}</td><td><EditableNumber value={i.capital} onCommit={(v) => updateInvestor(i.id, "capital", v)} /></td><td><EditableNumber value={i.shares} onCommit={(v) => updateInvestor(i.id, "shares", v)} /></td><td><EditableNumber value={i.hwm} onCommit={(v) => updateInvestor(i.id, "hwm", v)} /></td><td>{fmt(i.equalizationCredit, true)}</td><td>{((i.capital / r.investorCapital) * 100).toFixed(2)}%</td></tr>)}</tbody></table></ResponsiveTable></section>;
 }
 
 function ManagementFeeInvestorLevelView() {
@@ -2291,14 +2312,14 @@ function InvestmentExitWaterfallView() {
 
 function DerivativesView() {
   const { derivatives, updateDerivative } = useFundStore();
-  return <section className="panel full"><PanelTitle title="OTC Derivatives and MTM" right="MTM is valuation; exposure is counterparty risk after collateral and haircut" /><div className="table-wrap"><table className="data-grid"><thead><tr><th>Type</th><th>Reference</th><th>Notional</th><th>MTM</th><th>Gross Exposure</th><th>Net Exposure</th><th>PFE</th><th>Collateral Posted</th><th>Counterparty Exposure</th><th>ISDA Threshold</th><th>Margin Utilization</th><th>Haircut</th><th>Counterparty</th></tr></thead><tbody>{derivatives.map((d) => {
+  return <section className="panel full"><PanelTitle title="OTC Derivatives and MTM" right="MTM is valuation; exposure is counterparty risk after collateral and haircut" /><ResponsiveTable><table className="data-grid"><thead><tr><th>Type</th><th>Reference</th><th>Notional</th><th>MTM</th><th>Gross Exposure</th><th>Net Exposure</th><th>PFE</th><th>Collateral Posted</th><th>Counterparty Exposure</th><th>ISDA Threshold</th><th>Margin Utilization</th><th>Haircut</th><th>Counterparty</th></tr></thead><tbody>{derivatives.map((d) => {
     const grossExposure = Math.abs(d.notional);
     const pfe = grossExposure * 0.035;
     const haircut = d.collateral * 0.08;
     const netExposure = Math.max(d.mtm + pfe - d.collateral + haircut, 0);
     const threshold = grossExposure * 0.01;
     return <tr key={d.id}><td>{d.type}</td><td>{d.reference}</td><td>{fmt(d.notional, true)}</td><td><FlashCell id={`${d.id}-mtm`}><EditableNumber value={d.mtm} onCommit={(v) => updateDerivative(d.id, "mtm", v)} /></FlashCell></td><td>{fmt(grossExposure, true)}</td><td>{fmt(netExposure, true)}</td><td>{fmt(pfe, true)}</td><td><EditableNumber value={d.collateral} onCommit={(v) => updateDerivative(d.id, "collateral", v)} /></td><td className={netExposure > threshold ? "text-bad" : "text-good"}>{fmt(netExposure, true)}</td><td>{fmt(threshold, true)}</td><td>{((d.collateral / Math.max(threshold, 1)) * 100).toFixed(1)}%</td><td>{fmt(haircut, true)}</td><td>{d.counterparty}</td></tr>;
-  })}</tbody></table></div></section>;
+  })}</tbody></table></ResponsiveTable></section>;
 }
 
 function AccrualsView({ kind }: { kind: "Dividend" | "Coupon" }) {
@@ -2307,7 +2328,7 @@ function AccrualsView({ kind }: { kind: "Dividend" | "Coupon" }) {
   return (
     <section className="panel full">
       <PanelTitle title={`${kind} Accruals`} right="Editable accrual journals feed GL, P&L and NAV" />
-      <div className="table-wrap"><table className="data-grid">
+      <ResponsiveTable><table className="data-grid">
         <thead><tr>{kind === "Dividend"
           ? ["Ticker", "Ex-date", "Pay-date", "Shares eligible", "Withholding tax", "Net dividend"].map((h) => <th key={h}>{h}</th>)
           : ["Ticker", "Coupon %", "Accrual days", "Accrued interest", "Clean price", "Dirty price"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
@@ -2330,7 +2351,7 @@ function AccrualsView({ kind }: { kind: "Dividend" | "Coupon" }) {
             <td><FlashCell id={`${a.id}-dirtyPrice`}><EditableNumber value={a.dirtyPrice ?? 0} onCommit={(v) => updateAccrual(a.id, "dirtyPrice", v)} /></FlashCell></td>
           </tr>
         ))}</tbody>
-      </table></div>
+      </table></ResponsiveTable>
     </section>
   );
 }
@@ -2518,7 +2539,7 @@ function BreaksDashboard() {
         <button className="terminal-button" onClick={() => setActiveModule("nav")}>Open NAV Impact</button>
         <button className="terminal-button" onClick={() => setActiveModule("audit")}>Open Audit Trail</button>
       </div>}
-      <div className="table-wrap"><table className="data-grid"><thead><tr><th>Break ID</th><th>Type</th><th>Severity</th><th>Aging</th><th>Owner</th><th>NAV Impact</th><th>Root Cause</th><th>Status</th><th>Resolution Notes</th><th>Escalation</th><th>SLA</th><th>Comments</th><th>Evidence / Drilldown</th><th>Workflow Actions</th><th>AI</th></tr></thead><tbody>{breaks.map((b) => <tr key={b.id}><td><button className="link-button" onClick={() => setSelectedBreakId(b.id)}>{b.id}</button></td><td>{b.breakType}</td><td><span className={`tag ${b.severity === "Critical" || b.severity === "High" ? "bad" : b.severity === "Medium" ? "warn" : "good"}`}>{b.severity}</span></td><td>{b.aging}d</td><td><EditableText value={b.owner} onCommit={(v) => updateBreak(b.id, "owner", v)} /></td><td>{fmt(b.navImpact, true)}</td><td>{b.rootCause}</td><td><select className="terminal-select" value={b.status} onChange={(e) => updateBreak(b.id, "status", e.target.value)}><option>Open</option><option>Investigating</option><option>Pending External Party</option><option>Escalated</option><option>Resolved</option><option>Approved</option><option>Closed</option></select></td><td><EditableText value={b.resolutionNotes} onCommit={(v) => updateBreak(b.id, "resolutionNotes", v)} /></td><td>{b.escalationLevel}</td><td>{b.slaHours}h</td><td>{b.comments.join(" | ")}</td><td><div className="inline-actions"><button onClick={() => { setSelectedBreakId(b.id); setActiveModule(moduleForBreak(b.breakType)); }}>Source</button><button onClick={() => setActiveModule("gl")}>GL</button><button onClick={() => setActiveModule("nav")}>NAV</button><button onClick={() => setActiveModule("audit")}>Audit</button></div></td><td><div className="inline-actions"><button onClick={() => updateBreak(b.id, "status", "Escalated")}>Escalate</button><button onClick={() => updateBreak(b.id, "status", "Resolved")}>Resolve</button><button onClick={() => updateBreak(b.id, "status", "Approved")}>Approve</button><button onClick={() => updateBreak(b.id, "status", "Open")}>Reopen</button></div></td><td><button className="link-button" onClick={() => explainContext({ tab: "exceptions", title: b.id, summary: b.rootCause, accountingImpact: `Affected accounts depend on ${b.breakType}; unresolved items block clean NAV sign-off.`, navImpact: `Estimated NAV impact ${fmt(b.navImpact, true)} versus materiality threshold.`, recommendedAction: b.severity === "Critical" || b.severity === "High" ? "Escalate, obtain evidence, and approve resolution before NAV publication." : "Assign owner, document resolution notes, and approve if immaterial.", relatedEntries: ["Break register", "Audit trail", "NAV control checklist"] })}>Explain</button></td></tr>)}</tbody></table></div>
+      <ResponsiveTable><table className="data-grid"><thead><tr><th>Break ID</th><th>Type</th><th>Severity</th><th>Aging</th><th>Owner</th><th>NAV Impact</th><th>Root Cause</th><th>Status</th><th>Resolution Notes</th><th>Escalation</th><th>SLA</th><th>Comments</th><th>Evidence / Drilldown</th><th>Workflow Actions</th><th>AI</th></tr></thead><tbody>{breaks.map((b) => <tr key={b.id}><td><button className="link-button" onClick={() => setSelectedBreakId(b.id)}>{b.id}</button></td><td>{b.breakType}</td><td><span className={`tag ${b.severity === "Critical" || b.severity === "High" ? "bad" : b.severity === "Medium" ? "warn" : "good"}`}>{b.severity}</span></td><td>{b.aging}d</td><td><EditableText value={b.owner} onCommit={(v) => updateBreak(b.id, "owner", v)} /></td><td>{fmt(b.navImpact, true)}</td><td>{b.rootCause}</td><td><select className="terminal-select" value={b.status} onChange={(e) => updateBreak(b.id, "status", e.target.value)}><option>Open</option><option>Investigating</option><option>Pending External Party</option><option>Escalated</option><option>Resolved</option><option>Approved</option><option>Closed</option></select></td><td><EditableText value={b.resolutionNotes} onCommit={(v) => updateBreak(b.id, "resolutionNotes", v)} /></td><td>{b.escalationLevel}</td><td>{b.slaHours}h</td><td>{b.comments.join(" | ")}</td><td><div className="inline-actions"><button onClick={() => { setSelectedBreakId(b.id); setActiveModule(moduleForBreak(b.breakType)); }}>Source</button><button onClick={() => setActiveModule("gl")}>GL</button><button onClick={() => setActiveModule("nav")}>NAV</button><button onClick={() => setActiveModule("audit")}>Audit</button></div></td><td><div className="inline-actions"><button onClick={() => updateBreak(b.id, "status", "Escalated")}>Escalate</button><button onClick={() => updateBreak(b.id, "status", "Resolved")}>Resolve</button><button onClick={() => updateBreak(b.id, "status", "Approved")}>Approve</button><button onClick={() => updateBreak(b.id, "status", "Open")}>Reopen</button></div></td><td><button className="link-button" onClick={() => explainContext({ tab: "exceptions", title: b.id, summary: b.rootCause, accountingImpact: `Affected accounts depend on ${b.breakType}; unresolved items block clean NAV sign-off.`, navImpact: `Estimated NAV impact ${fmt(b.navImpact, true)} versus materiality threshold.`, recommendedAction: b.severity === "Critical" || b.severity === "High" ? "Escalate, obtain evidence, and approve resolution before NAV publication." : "Assign owner, document resolution notes, and approve if immaterial.", relatedEntries: ["Break register", "Audit trail", "NAV control checklist"] })}>Explain</button></td></tr>)}</tbody></table></ResponsiveTable>
     </section>
   );
 }
@@ -2818,7 +2839,7 @@ function ReconciliationBreaks() {
 function SimpleRows({ rows, empty = "No rows" }: { rows: Array<Record<string, ReactNode>>; empty?: string }) {
   if (!rows.length) return <div className="empty-state">{empty}</div>;
   const headers = Object.keys(rows[0]);
-  return <div className="table-wrap"><table className="data-grid"><thead><tr>{headers.map((h) => <th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((row, idx) => <tr key={idx}>{headers.map((h) => <td key={h}>{row[h]}</td>)}</tr>)}</tbody></table></div>;
+  return <ResponsiveTable><table className="data-grid"><thead><tr>{headers.map((h) => <th key={h}>{h}</th>)}</tr></thead><tbody>{rows.map((row, idx) => <tr key={idx}>{headers.map((h) => <td key={h}>{row[h]}</td>)}</tr>)}</tbody></table></ResponsiveTable>;
 }
 
 function ReconRiskOps({ type }: { type: ModuleId }) {
@@ -3731,7 +3752,7 @@ function ScenarioEditableGrid({ module }: { module: ModuleId }) {
     return (
       <section className="scenario-workbench">
         <PanelTitle title="Editable Scenario Workbench" right="Prices, quantities and valuation inputs" />
-        <div className="table-wrap">
+        <ResponsiveTable>
           <table className="data-grid">
             <thead><tr><th>Ticker</th><th>Asset</th><th>Currency</th><th>Quantity</th><th>Market Price</th><th>Current FX</th><th>Base MV</th><th>Unrealized P&L</th><th>Exposure</th></tr></thead>
             <tbody>{r.holdings.slice(0, 25).map((h) => <tr key={h.id}>
@@ -3741,7 +3762,7 @@ function ScenarioEditableGrid({ module }: { module: ModuleId }) {
               <td>{h.fxRate.toFixed(4)}</td><td>{fmt(h.baseMarketValue, true)}</td><td className={h.totalUnrealizedPnl >= 0 ? "text-good" : "text-bad"}>{fmt(h.totalUnrealizedPnl, true)}</td><td>{h.exposurePct.toFixed(2)}%</td>
             </tr>)}</tbody>
           </table>
-        </div>
+        </ResponsiveTable>
       </section>
     );
   }
@@ -3749,7 +3770,7 @@ function ScenarioEditableGrid({ module }: { module: ModuleId }) {
     return (
       <section className="scenario-workbench">
         <PanelTitle title="Editable Scenario Workbench" right="Trade economics and broker charges" />
-        <div className="table-wrap"><table className="data-grid"><thead><tr><th>Trade ID</th><th>Broker</th><th>Side</th><th>Ticker</th><th>Quantity</th><th>Price</th><th>Fees</th><th>Status</th><th>Net Amount</th></tr></thead><tbody>{store.trades.map((t) => <tr key={t.id}><td>{t.id}</td><td>{t.broker}</td><td>{t.side}</td><td>{t.ticker}</td><td><EditableNumber value={t.quantity} onCommit={(v) => store.updateTrade(t.id, "quantity", v)} /></td><td><EditableNumber value={t.price} onCommit={(v) => store.updateTrade(t.id, "price", v)} /></td><td><EditableNumber value={t.fees} onCommit={(v) => store.updateTrade(t.id, "fees", v)} /></td><td>{t.status}</td><td>{fmt(t.quantity * t.price + (t.side === "Buy" ? t.fees : -t.fees), true)}</td></tr>)}</tbody></table></div>
+        <ResponsiveTable><table className="data-grid"><thead><tr><th>Trade ID</th><th>Broker</th><th>Side</th><th>Ticker</th><th>Quantity</th><th>Price</th><th>Fees</th><th>Status</th><th>Net Amount</th></tr></thead><tbody>{store.trades.map((t) => <tr key={t.id}><td>{t.id}</td><td>{t.broker}</td><td>{t.side}</td><td>{t.ticker}</td><td><EditableNumber value={t.quantity} onCommit={(v) => store.updateTrade(t.id, "quantity", v)} /></td><td><EditableNumber value={t.price} onCommit={(v) => store.updateTrade(t.id, "price", v)} /></td><td><EditableNumber value={t.fees} onCommit={(v) => store.updateTrade(t.id, "fees", v)} /></td><td>{t.status}</td><td>{fmt(t.quantity * t.price + (t.side === "Buy" ? t.fees : -t.fees), true)}</td></tr>)}</tbody></table></ResponsiveTable>
       </section>
     );
   }

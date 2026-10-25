@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { ArrowRight, Building2, GraduationCap, Home, Landmark, BriefcaseBusiness } from "lucide-react";
+import { ResponsiveDisclosure } from "../components/MobileWorkspace";
 import { VisitorGate } from "../components/VisitorGate";
 import { WorkspacePreview } from "./WorkspacePreview";
 import { workspacePreviewsEnabled } from "./previewPolicy";
@@ -69,7 +70,7 @@ export function AssetClassPortal({ renderWorkspace }: { renderWorkspace: (asset:
   </div>;
   if (route === "not-found") return <main className="portal-not-found"><h1>Page not found</h1><button className="terminal-button" onClick={() => navigate("home")}><Home size={16} /> Choose a workspace</button></main>;
   return <div className="portal-workspace">
-    <div className="portal-workspace-bar"><button className="terminal-button" onClick={() => navigate("home")}><Home size={16} /> Home / Switch Workspace</button><strong>{route === "hedge-fund" ? "Hedge Fund Accounting" : "Real Estate Fund Accounting"}</strong><PathwayChoice value={pathway} onChange={setPathway} /></div>
+    <div className="portal-workspace-bar"><button className="terminal-button" onClick={() => navigate("home")}><Home size={16} /><span className="workspace-switch-long">Home / Switch Workspace</span><span className="workspace-switch-short">Switch</span></button><strong>{route === "hedge-fund" ? "Hedge Fund Accounting" : "Real Estate Fund Accounting"}</strong><ResponsiveDisclosure label="Pathway" className="workspace-options"><PathwayChoice value={pathway} onChange={setPathway} /></ResponsiveDisclosure></div>
     <VisitorGate>{renderWorkspace(route, pathway)}</VisitorGate>
   </div>;
 }

@@ -1,0 +1,78 @@
+.desktop-disclosure { display: contents; }
+.mobile-module-bar, .workspace-switch-short { display: none; }
+.responsive-table { min-width: 0; max-width: 100%; }
+.mobile-module-dialog, .mobile-row-dialog { color: #d6e2ea; background: #0b1418; border: 1px solid #34515c; padding: 0; }
+.mobile-module-dialog::backdrop, .mobile-row-dialog::backdrop { background: rgba(0,0,0,.7); }
+@media (max-width: 980px) {
+  .mobile-module-bar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: 12px; min-height: 68px; padding: 8px 12px; border-bottom: 1px solid #263940; background: #0b1418; }
+  .workspace-switch-long { display: none; }
+  .portal-workspace .workspace-switch-short { display: inline; }
+  .mobile-module-bar .fundops-logo { width: 26px; height: 26px; }
+  .mobile-module-bar > div { min-width: 0; flex: 1; }
+  .mobile-module-bar span { color: #a8bbc5; font-size: 11px; }
+  .mobile-module-bar h1 { margin: 2px 0 0; font-size: 15px; line-height: 1.35; overflow-wrap: anywhere; }
+  .mobile-module-bar button, .mobile-module-dialog button, .mobile-row-dialog button { min-height: 44px; color: #d6e2ea; border: 1px solid #34515c; background: #101d22; cursor: pointer; }
+  .mobile-modules-trigger { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; flex: none; font-size: 14px; }
+  .mobile-module-dialog { position: fixed; inset: 0; margin: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; border: 0; display: flex; flex-direction: column; padding-top: env(safe-area-inset-top); }
+  .mobile-module-dialog > header, .mobile-row-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #263940; }
+  .mobile-module-dialog header span { color: #a8bbc5; font-size: 12px; }
+  .mobile-module-dialog h2, .mobile-row-dialog h2 { margin: 2px 0; font-size: 19px; }
+  .mobile-module-dialog header button, .mobile-row-dialog header button { display: grid; place-items: center; width: 44px; padding: 0; flex: none; }
+  .mobile-module-search { display: flex; align-items: center; gap: 8px; margin: 12px 16px; border: 1px solid #34515c; padding: 0 10px; }
+  .mobile-module-search input { width: 100%; min-width: 0; min-height: 44px; border: 0; background: transparent; color: #fff; font-size: 16px; }
+  .mobile-module-list { overflow-y: auto; overscroll-behavior: contain; padding: 0 16px max(20px, env(safe-area-inset-bottom)); flex: 1; min-height: 0; }
+  .mobile-module-list section { border-bottom: 1px solid #263940; }
+  .mobile-module-list button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; text-align: left; line-height: 1.4; padding: 12px; border: 0; border-radius: 0; }
+  .mobile-module-list button svg { flex: none; }
+  .mobile-module-list .mobile-area-heading { min-height: 54px; font-weight: 650; font-size: 15px; background: transparent; }
+  .mobile-module-list .mobile-area-tab { margin: 3px 0; padding-left: 22px; font-size: 14px; }
+  .mobile-area-tab[aria-current="page"] { color: #fff; background: #193039; outline: 1px solid #47d5e7; outline-offset: -1px; }
+  .mobile-module-options { padding: 0 16px 10px; }
+  .mobile-module-options .portal-essential-toggle { min-height: 44px; padding: 6px 0; font-size: 14px; }
+  .mobile-disclosure { min-width: 0; width: 100%; }
+  .mobile-disclosure > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 44px; padding: 8px 10px; border: 1px solid #34515c; font-size: 13px; }
+  .mobile-disclosure > summary::-webkit-details-marker { display: none; }
+  .mobile-disclosure[open] > summary svg { transform: rotate(180deg); }
+  .mobile-disclosure-body { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 0 2px; min-width: 0; }
+  .mobile-disclosure-body > * { min-width: 0; max-width: 100%; }
+  .mobile-disclosure-body .terminal-select { width: 100%; min-height: 44px; font-size: 16px; }
+  .mobile-disclosure-body .status-pill { white-space: normal; }
+  .topbar.mobile-compact-header { padding: 8px 12px; gap: 8px; position: static; }
+  .mobile-compact-header .top-actions { display: flex; flex-wrap: wrap; width: 100%; gap: 8px; }
+  .mobile-compact-header .environment-switch { width: 100%; }
+  .mobile-compact-header .environment-switch button { flex: 1; min-height: 44px; }
+  .portal-workspace-bar { position: relative; gap: 8px; padding: 6px 12px; }
+  .portal-workspace .portal-workspace-bar > strong { font-size: 12px; order: 0; width: auto; flex: 1; }
+  .portal-workspace-bar > .terminal-button { min-height: 44px; padding: 8px; font-size: 12px; }
+  .portal-workspace-bar .workspace-options { flex: 0 0 auto; width: auto; }
+  .workspace-options .mobile-disclosure-body { position: absolute; top: 100%; left: 0; right: 0; background: #0b1418; z-index: 40; padding: 12px; border-bottom: 1px solid #34515c; }
+  .portal-workspace-bar .portal-pathways { width: 100%; }
+  .mobile-table-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0; color: #b5c8d2; font-size: 12px; }
+  .mobile-table-tools > span { display: flex; align-items: center; gap: 4px; }
+  .mobile-table-tools button { min-height: 44px; padding: 8px 12px; color: #d6e2ea; background: #101d22; border: 1px solid #34515c; }
+  .responsive-table .table-wrap { max-height: 65dvh; overflow: auto; overscroll-behavior: contain; }
+  .responsive-table th { position: sticky; top: 0; z-index: 2; background: #14252b; }
+  .responsive-table th:first-child, .responsive-table td:first-child { position: sticky; left: 0; background: #101d22; z-index: 1; max-width: 150px; }
+  .responsive-table th:first-child { z-index: 3; background: #14252b; }
+  .responsive-table td:first-child { white-space: normal; overflow-wrap: anywhere; }
+  .mobile-row-dialog { width: calc(100% - 24px); max-width: 520px; max-height: 90dvh; padding-bottom: max(16px, env(safe-area-inset-bottom)); overflow: auto; }
+  .mobile-row-dialog > header { position: sticky; top: 0; background: #0b1418; }
+  .mobile-row-dialog > label, .mobile-row-dialog > p, .mobile-row-dialog dl { display: block; margin: 16px; }
+  .mobile-row-dialog select { display: block; width: 100%; min-height: 44px; background: #101d22; color: #fff; border: 1px solid #34515c; font-size: 16px; margin-top: 8px; }
+  .mobile-row-dialog dl > div { border-bottom: 1px solid #263940; padding: 10px 0; }
+  .mobile-row-dialog dt { color: #a8bbc5; font-size: 12px; }
+  .mobile-row-dialog dd { margin: 4px 0; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .app-shell input, .app-shell select, .app-shell textarea { font-size: 16px; min-height: 44px; }
+  .app-shell input[type="checkbox"], .app-shell input[type="radio"] { min-height: 24px; width: 24px; flex: none; }
+  .app-shell .terminal-button, .app-shell .link-button, .app-shell .inline-actions button, .app-shell .re-table th button, .app-shell .re-action-row button { min-height: 44px; }
+  .app-shell .re-table th button { padding: 8px 4px; }
+  .app-shell .form-grid, .app-shell .re-form-grid { grid-template-columns: minmax(0, 1fr); }
+  .app-shell .content { padding-bottom: max(90px, env(safe-area-inset-bottom)); }
+  .app-shell .ai-rail { right: 8px; bottom: max(8px, env(safe-area-inset-bottom)); width: 44px; height: 44px; }
+  .app-shell .manual-submit { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .app-shell .manual-submit > button { justify-content: center; white-space: normal; }
+  .app-shell:has(input:focus, textarea:focus, select:focus) .ai-rail { visibility: hidden; }
+  .mobile-module-list, .responsive-table .table-wrap { scrollbar-color: #385761 #0b1418; scrollbar-width: thin; }
+  .app-shell h1, .app-shell h2, .app-shell [tabindex] { scroll-margin-top: 80px; }
+  .mobile-module-dialog :focus-visible, .mobile-row-dialog :focus-visible, .mobile-module-bar :focus-visible, .mobile-disclosure :focus-visible { outline: 2px solid #47d5e7; outline-offset: -2px; }
+}
